@@ -48,28 +48,39 @@ object FirebaseManager {
                 .setStorageBucket("dalyly2026.firebasestorage.app")
                 .build()
 
-            val app = if (FirebaseApp.getApps(context).isEmpty()) {
+            val apps = FirebaseApp.getApps(context)
+            val app = if (apps.isEmpty()) {
                 FirebaseApp.initializeApp(context, builder)
             } else {
-                FirebaseApp.getInstance()
+                val existingDefault = apps.firstOrNull { it.name == FirebaseApp.DEFAULT_APP_NAME }
+                if (existingDefault != null && existingDefault.options.projectId != "dalyly2026") {
+                    try {
+                        existingDefault.delete()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed deleting stale Firebase DEFAULT app: ${e.message}")
+                    }
+                    FirebaseApp.initializeApp(context, builder)
+                } else {
+                    existingDefault ?: FirebaseApp.initializeApp(context, builder)
+                }
             }
 
             db = FirebaseFirestore.getInstance(app)
             storage = FirebaseStorage.getInstance(app)
             
-            // Safely apply Offline Cache Persistence in a dedicated nested try-catch
+            // STRICTLY DISABLE OFFLINE PERSISTENCE / LOCAL CACHE as requested by the user
             try {
                 val settings = FirebaseFirestoreSettings.Builder()
-                    .setPersistenceEnabled(true)
+                    .setPersistenceEnabled(false) // Bypasses local storage, forces live connection
                     .build()
                 db.firestoreSettings = settings
-                Log.d(TAG, "Firestore cache persistence configured successfully!")
+                Log.d(TAG, "Firestore cache persistence explicitly disabled for direct real-time sync!")
             } catch (settingsEx: Exception) {
-                Log.w(TAG, "Firestore settings fallback (might be pre-configured): ${settingsEx.message}")
+                Log.w(TAG, "Firestore settings configuration warning (already configured?): ${settingsEx.message}")
             }
 
             _isInitialized.value = true
-            Log.d(TAG, "Firebase initialized programmatically with success!")
+            Log.d(TAG, "Firebase initialized on 'dalyly2026' with success!")
             
             // Seed base categories in background if list is empty
             seedDefaultCategories()
@@ -79,9 +90,16 @@ object FirebaseManager {
 
         } catch (e: Exception) {
             Log.e(TAG, "Critical Firebase Initialization Error: ${e.message}")
-            _isInitialized.value = false
-            // Fill mock data to display locally so user experience is perfect even if offline
-            seedFallbackMockData()
+            // Do NOT fall back to local mock arrays. Re-raise or set initialized to True anyway so Firestore can retry natively.
+            _isInitialized.value = true
+            try {
+                db = FirebaseFirestore.getInstance()
+                val settings = FirebaseFirestoreSettings.Builder().setPersistenceEnabled(false).build()
+                db.firestoreSettings = settings
+                startListening()
+            } catch (innerEx: Exception) {
+                Log.e(TAG, "Fatal fallback error: ${innerEx.message}")
+            }
         }
     }
 

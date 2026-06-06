@@ -1298,11 +1298,15 @@ fun LoginScreen(
                 val mainAdminUser = "WAM2026"
                 val mainAdminPass = config.mainAdminPass
 
-                val supervisorMatch = supervisors.find { it.username.trim() == username.trim() && it.password.trim() == password.trim() }
+                val supervisorMatch = supervisors.find { 
+                    it.username.trim().equals(username.trim(), ignoreCase = true) && 
+                    it.password.trim() == password.trim() 
+                }
 
-                if ((username.trim() == mainAdminUser && password.trim() == mainAdminPass) || supervisorMatch != null) {
+                if ((username.trim().equals(mainAdminUser, ignoreCase = true) && password.trim() == mainAdminPass) || supervisorMatch != null) {
                     Toast.makeText(context, if (isArabic) "مرحباً بك! تم تسجيل الدخول بنجاح" else "Login Successful!", Toast.LENGTH_SHORT).show()
-                    onLoginSuccess(username)
+                    val actualUsername = supervisorMatch?.username ?: username.trim()
+                    onLoginSuccess(actualUsername)
                 } else {
                     Toast.makeText(context, if (isArabic) "خطأ! اسم المستخدم أو كلمة المرور غير صحيحة" else "Invalid username or password", Toast.LENGTH_SHORT).show()
                 }

@@ -48,21 +48,27 @@ object FirebaseManager {
                 .setStorageBucket("dalyly2026.firebasestorage.app")
                 .build()
 
-            if (FirebaseApp.getApps(context).isEmpty()) {
+            val app = if (FirebaseApp.getApps(context).isEmpty()) {
                 FirebaseApp.initializeApp(context, builder)
+            } else {
+                FirebaseApp.getInstance()
             }
 
-            db = FirebaseFirestore.getInstance()
+            db = FirebaseFirestore.getInstance(app)
+            storage = FirebaseStorage.getInstance(app)
             
-            // Mandatory Offline-First Setup: Enable Firestore Cache Persistence
-            val settings = FirebaseFirestoreSettings.Builder()
-                .setPersistenceEnabled(true)
-                .build()
-            db.firestoreSettings = settings
+            // Safely apply Offline Cache Persistence in a dedicated nested try-catch
+            try {
+                val settings = FirebaseFirestoreSettings.Builder()
+                    .setPersistenceEnabled(true)
+                    .build()
+                db.firestoreSettings = settings
+                Log.d(TAG, "Firestore cache persistence configured successfully!")
+            } catch (settingsEx: Exception) {
+                Log.w(TAG, "Firestore settings fallback (might be pre-configured): ${settingsEx.message}")
+            }
 
-            storage = FirebaseStorage.getInstance()
             _isInitialized.value = true
-
             Log.d(TAG, "Firebase initialized programmatically with success!")
             
             // Seed base categories in background if list is empty
@@ -72,7 +78,7 @@ object FirebaseManager {
             startListening()
 
         } catch (e: Exception) {
-            Log.e(TAG, "Initialization Error, starting offline local simulation: ${e.message}")
+            Log.e(TAG, "Critical Firebase Initialization Error: ${e.message}")
             _isInitialized.value = false
             // Fill mock data to display locally so user experience is perfect even if offline
             seedFallbackMockData()
@@ -266,6 +272,10 @@ object FirebaseManager {
             // 9. Supervisors/Moderators Live snapshot
             val modReg = db.collection("moderators")
                 .addSnapshotListener { snapshots, error ->
+                    if (error != null) {
+                        Log.e(TAG, "Moderators snapshot error: ${error.message}")
+                        return@addSnapshotListener
+                    }
                     if (snapshots != null) {
                         val items = snapshots.map { doc ->
                             Moderator(

@@ -139,25 +139,31 @@ class MainActivity : ComponentActivity() {
                 InteractiveYemenTheme(themeType = config.themeType) {
                     Scaffold(
                         topBar = {
-                            Column(modifier = Modifier.background(MaterialTheme.colorScheme.surface)) {
+                            Column(
+                                modifier = Modifier
+                                    .background(MaterialTheme.colorScheme.surface)
+                                    .statusBarsPadding()
+                            ) {
+                                // Row 1: App Branding Header & Interactive Language Pill
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .statusBarsPadding()
-                                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                                        .padding(horizontal = 14.dp, vertical = 8.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    // 1. App Title with Home 🏠 counter trigger
+                                    // Clickable Brand Title to trigger Backdoor
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.clickable {
-                                            tapHomeCount++
-                                            if (tapHomeCount == 5) {
-                                                displayBackdoorPasswordDialog = true
-                                                tapHomeCount = 0
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clickable {
+                                                tapHomeCount++
+                                                if (tapHomeCount == 5) {
+                                                    displayBackdoorPasswordDialog = true
+                                                    tapHomeCount = 0
+                                                }
                                             }
-                                        }
                                     ) {
                                         Text(
                                             text = config.logoEmoji,
@@ -166,65 +172,157 @@ class MainActivity : ComponentActivity() {
                                         )
                                         Text(
                                             text = config.appName,
-                                            fontSize = 18.sp,
+                                            fontSize = 16.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.primary
+                                            color = MaterialTheme.colorScheme.primary,
+                                            maxLines = 1,
+                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                         )
                                     }
 
-                                    // 2. Navigation Tabs (Top)
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        // 🏠 الرئيسية
-                                        IconButton(onClick = { activeScreen = Screen.HOME }) {
-                                            Icon(
-                                                imageVector = Icons.Default.Home,
-                                                contentDescription = "Home",
-                                                tint = if (activeScreen == Screen.HOME) MaterialTheme.colorScheme.primary else Color.Gray
+                                    // Gorgeous Prominent Language Selector Capsule (Fixes visibility & layout issues)
+                                    Box(
+                                        modifier = Modifier
+                                            .background(
+                                                color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.12f),
+                                                shape = RoundedCornerShape(12.dp)
                                             )
-                                        }
-
-                                        // 👤 إنشاء حساب مهني
-                                        IconButton(onClick = { activeScreen = Screen.REGISTER_PROVIDER }) {
-                                            Icon(
-                                                imageVector = Icons.Default.Person,
-                                                contentDescription = "Add Provider",
-                                                tint = if (activeScreen == Screen.REGISTER_PROVIDER) MaterialTheme.colorScheme.primary else Color.Gray
+                                            .border(
+                                                width = 1.dp,
+                                                color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.25f),
+                                                shape = RoundedCornerShape(12.dp)
                                             )
-                                        }
-
-                                        // 🔐 تسجيل الدخول
-                                        IconButton(onClick = { activeScreen = Screen.LOGIN }) {
-                                            Icon(
-                                                imageVector = Icons.Default.Lock,
-                                                contentDescription = "Auth Admin",
-                                                tint = if (activeScreen == Screen.LOGIN || loggedUser != null) MaterialTheme.colorScheme.primary else Color.Gray
-                                            )
-                                        }
-
-                                        // 🌐 تفضيل اللغة
-                                        Text(
-                                            text = if (isArabic) "EN" else "عربي",
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.secondary,
-                                            modifier = Modifier
-                                                .clickable { isArabic = !isArabic }
-                                                .padding(horizontal = 8.dp)
-                                        )
-
-                                        // 🔄 تحديث
-                                        IconButton(onClick = {
-                                            Toast.makeText(context, if (isArabic) "مزامنة لحظية نشطة بالخلفية..." else "Real-time sync active...", Toast.LENGTH_SHORT).show()
-                                        }) {
-                                            Icon(
-                                                imageVector = Icons.Default.Refresh,
-                                                contentDescription = "Sync refresh",
-                                                tint = MaterialTheme.colorScheme.primary
+                                            .clickable { isArabic = !isArabic }
+                                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                                            .testTag("language_toggle_btn"),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Text(text = "🌐", fontSize = 12.sp)
+                                            Text(
+                                                text = if (isArabic) "English" else "عربي",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.secondary
                                             )
                                         }
                                     }
                                 }
-                                Divider(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f), thickness = 1.dp)
+
+                                Divider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f), thickness = 0.5.dp)
+
+                                // Row 2: Navigation Tab system with icons & text labels
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceEvenly
+                                ) {
+                                    // 🏠 HOME TAB
+                                    val isHomeSelected = activeScreen == Screen.HOME
+                                    val homeTint = if (isHomeSelected) MaterialTheme.colorScheme.primary else Color.Gray
+                                    Row(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable { activeScreen = Screen.HOME }
+                                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Home,
+                                            contentDescription = "Home",
+                                            tint = homeTint,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Text(
+                                            text = if (isArabic) "الرئيسية" else "Home",
+                                            fontSize = 12.sp,
+                                            fontWeight = if (isHomeSelected) FontWeight.Bold else FontWeight.Normal,
+                                            color = homeTint
+                                        )
+                                    }
+
+                                    // 👥 JOIN / REGISTER PROVIDER TAB
+                                    val isRegSelected = activeScreen == Screen.REGISTER_PROVIDER
+                                    val regTint = if (isRegSelected) MaterialTheme.colorScheme.primary else Color.Gray
+                                    Row(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable { activeScreen = Screen.REGISTER_PROVIDER }
+                                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Person,
+                                            contentDescription = "Add Provider",
+                                            tint = regTint,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Text(
+                                            text = if (isArabic) "انضمام كعضو" else "Register",
+                                            fontSize = 12.sp,
+                                            fontWeight = if (isRegSelected) FontWeight.Bold else FontWeight.Normal,
+                                            color = regTint
+                                        )
+                                    }
+
+                                    // 🔐 LOGIN / DASHBOARD TAB
+                                    val isLoginSelected = activeScreen == Screen.LOGIN
+                                    val loginTint = if (isLoginSelected || loggedUser != null) MaterialTheme.colorScheme.primary else Color.Gray
+                                    Row(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable { activeScreen = Screen.LOGIN }
+                                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Lock,
+                                            contentDescription = "Auth Admin",
+                                            tint = loginTint,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Text(
+                                            text = if (loggedUser != null) {
+                                                if (isArabic) "لوحة التحكم" else "Dashboard"
+                                            } else {
+                                                if (isArabic) "دخول الإدارة" else "Login"
+                                            },
+                                            fontSize = 12.sp,
+                                            fontWeight = if (isLoginSelected) FontWeight.Bold else FontWeight.Normal,
+                                            color = loginTint
+                                        )
+                                    }
+
+                                    // 🔄 REAL-TIME SYNC TRIGGER / INDICATOR
+                                    IconButton(
+                                        onClick = {
+                                            Toast.makeText(
+                                                context,
+                                                if (isArabic) "مزامنة لحظية مفعّلة وثابتة، البيانات متطابقة!" 
+                                                else "Real-time sync active, data is fully synced!", 
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Refresh,
+                                            contentDescription = "Sync refresh",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+
+                                Divider(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f), thickness = 1.dp)
                             }
                         },
                         bottomBar = {

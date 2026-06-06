@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "89823302013",
+    "project_id": "dalyly2026",
+    "storage_bucket": "dalyly2026.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:89823302013:android:1910d098b23f547aa3fc14",
+        "android_client_info": {
+          "package_name": "com.dalyly"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCgFnPJso1f2mwB1jvyRbGzZReAdf4eug0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

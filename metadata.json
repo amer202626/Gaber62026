@@ -1,0 +1,6 @@
+{
+  "name": "دليل الخدمات",
+  "description": "تطبيق الدليل لكل خدمات اليمن - بحث لحظي، مساعد ذكي ومزامنة لحظية",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

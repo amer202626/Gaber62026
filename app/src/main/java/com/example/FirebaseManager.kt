@@ -42,6 +42,7 @@ object FirebaseManager {
     val incidentReports = MutableStateFlow<List<IncidentReport>>(emptyList())
     val activityLogs = MutableStateFlow<List<ActivityLog>>(emptyList())
     val moderators = MutableStateFlow<List<Moderator>>(emptyList())
+    val isProvidersDataFromCache = MutableStateFlow(false)
 
     // Active Listener Containers
     private val registrations = mutableListOf<ListenerRegistration>()
@@ -305,6 +306,7 @@ object FirebaseManager {
                     return@addSnapshotListener
                 }
                 if (snapshots != null) {
+                    isProvidersDataFromCache.value = snapshots.metadata.isFromCache
                     val items = snapshots.map { doc ->
                         ServiceProvider(
                             id = doc.id,

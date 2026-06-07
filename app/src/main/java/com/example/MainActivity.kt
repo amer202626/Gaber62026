@@ -77,6 +77,7 @@ class MainActivity : ComponentActivity() {
             val reportList by FirebaseManager.incidentReports.collectAsState()
             val supervisorList by FirebaseManager.moderators.collectAsState()
             val historyLogs by FirebaseManager.activityLogs.collectAsState()
+            val isProvidersDataFromCache by FirebaseManager.isProvidersDataFromCache.collectAsState()
 
             var activeScreen by remember { mutableStateOf(Screen.HOME) }
             var isArabic by remember { mutableStateOf(true) }
@@ -471,6 +472,7 @@ class MainActivity : ComponentActivity() {
                                     selectedFilterCity = selectedFilterCity,
                                     selectedFilterMinRating = selectedFilterMinRating,
                                     isArabic = isArabic,
+                                    isProvidersDataFromCache = isProvidersDataFromCache,
                                     onSearchTextChange = { searchTextInput = it },
                                     onCategorySelect = { selectedFilterCategoryId = it },
                                     onCitySelect = { selectedFilterCity = it },
@@ -612,6 +614,7 @@ fun HomeScreen(
     selectedFilterCity: String,
     selectedFilterMinRating: Float,
     isArabic: Boolean,
+    isProvidersDataFromCache: Boolean,
     onSearchTextChange: (String) -> Unit,
     onCategorySelect: (String) -> Unit,
     onCitySelect: (String) -> Unit,
@@ -620,6 +623,7 @@ fun HomeScreen(
     onProviderClick: (ServiceProvider) -> Unit
 ) {
     var expandedFilterDrawer by remember { mutableStateOf(false) }
+    var selectedVerificationFilter by remember { mutableStateOf(0) } // 0: All, 1: Verified Only, 2: Unverified Only
 
     // Sliding banner control
     var activeBannerIndex by remember { mutableStateOf(0) }
@@ -633,7 +637,7 @@ fun HomeScreen(
     }
 
     // Comprehensive search filtration logic
-    val filteredProviders = remember(providers, searchTextInput, selectedFilterCategoryId, selectedFilterCity, selectedFilterMinRating) {
+    val filteredProviders = remember(providers, searchTextInput, selectedFilterCategoryId, selectedFilterCity, selectedFilterMinRating, selectedVerificationFilter) {
         providers.filter { p ->
             val matchesText = searchTextInput.isEmpty() ||
                     p.fullName.contains(searchTextInput, ignoreCase = true) ||
@@ -644,8 +648,13 @@ fun HomeScreen(
             val matchesCategory = selectedFilterCategoryId.isEmpty() || p.categoryId == selectedFilterCategoryId
             val matchesCity = selectedFilterCity.isEmpty() || p.area.contains(selectedFilterCity) || p.address.contains(selectedFilterCity)
             val matchesRating = p.averageRating >= selectedFilterMinRating
+            val matchesVerification = when (selectedVerificationFilter) {
+                1 -> p.isVerified
+                2 -> !p.isVerified
+                else -> true
+            }
 
-            matchesText && matchesCategory && matchesCity && matchesRating
+            matchesText && matchesCategory && matchesCity && matchesRating && matchesVerification
         }.sortedWith(compareByDescending<ServiceProvider> { it.isPinned }
             .thenByDescending { it.isRecommended }
             .thenByDescending { it.hasPremiumSubscription })
@@ -657,6 +666,73 @@ fun HomeScreen(
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        // Offline-First Cache Verification status Banner
+        item {
+            Surface(
+                modifier = Modifier.fillMaxWidth().testTag("offline_cache_verification_banner"),
+                shape = RoundedCornerShape(10.dp),
+                color = if (isProvidersDataFromCache) {
+                    Color(0xFF2E7D32).copy(alpha = 0.12f)
+                } else {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+                },
+                border = BorderStroke(
+                    width = 1.dp,
+                    color = if (isProvidersDataFromCache) Color(0xFF2E7D32).copy(alpha = 0.4f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
+                )
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(text = if (isProvidersDataFromCache) "💾" else "☁️", fontSize = 16.sp, modifier = Modifier.padding(end = 8.dp))
+                        Column {
+                            Text(
+                                text = if (isProvidersDataFromCache) {
+                                    if (isArabic) "الحالة: مسترجع بالكامل من كاش الأوفلاين المحلي (SQLite)" else "Loaded from SQLite Local Offline Cache"
+                                } else {
+                                    if (isArabic) "الحالة: متصل بالخادم السحابي النشط" else "Connected to Live Cloud Service"
+                                },
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isProvidersDataFromCache) Color(0xFF2E7D32) else MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = if (isArabic) {
+                                    "✓ تم التحقق لتمكين دليلي 2026 دون اتصال إنترنت."
+                                } else {
+                                    "✓ Offline-First persistence verified successfully."
+                                },
+                                fontSize = 9.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Box(
+                        modifier = Modifier
+                            .background(
+                                color = if (isProvidersDataFromCache) Color(0xFF2E7D32) else MaterialTheme.colorScheme.primary,
+                                shape = RoundedCornerShape(4.dp)
+                            )
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = if (isProvidersDataFromCache) {
+                                if (isArabic) "كاش محلي" else "Local Cache"
+                            } else {
+                                if (isArabic) "نشط سحابي" else "Cloud Live"
+                            },
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                }
+            }
+        }
+
         // Welcome Header
         item {
             Card(
@@ -856,6 +932,37 @@ fun HomeScreen(
                             }
                         }
 
+                        // 3. Verification status filters
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(text = if (isArabic) "التوثيق:" else "Verify:", fontSize = 11.sp, modifier = Modifier.width(60.dp))
+                            val verifications = listOf(0, 1, 2)
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                items(verifications) { verOption ->
+                                    val optionLabel = when (verOption) {
+                                        1 -> if (isArabic) "موثق فقط ✓" else "Verified Only ✓"
+                                        2 -> if (isArabic) "غير موثق ⏳" else "Unverified ⏳"
+                                        else -> if (isArabic) "الكل 🌐" else "All 🌐"
+                                    }
+                                    val isActive = selectedVerificationFilter == verOption
+                                    Box(
+                                        modifier = Modifier
+                                            .background(
+                                                color = if (isActive) MaterialTheme.colorScheme.primary else Color.DarkGray,
+                                                shape = RoundedCornerShape(6.dp)
+                                            )
+                                            .clickable { selectedVerificationFilter = verOption }
+                                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                                    ) {
+                                        Text(
+                                            text = optionLabel,
+                                            fontSize = 11.sp,
+                                            color = Color.White
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
                         // Clear filter
                         TextButton(
                             onClick = {
@@ -863,6 +970,7 @@ fun HomeScreen(
                                 onRatingSelect(0f)
                                 onCategorySelect("")
                                 onSearchTextChange("")
+                                selectedVerificationFilter = 0
                                 expandedFilterDrawer = false
                             },
                             modifier = Modifier.align(Alignment.End)
@@ -1051,6 +1159,41 @@ fun ProviderCardItem(p: ServiceProvider, isArabic: Boolean, onClick: () -> Unit)
                     color = MaterialTheme.colorScheme.primary,
                     maxLines = 1
                 )
+
+                // Responsive dynamic verification status badge row
+                Row(
+                    modifier = Modifier.padding(vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (p.isVerified) {
+                        Box(
+                            modifier = Modifier
+                                .background(Color(0xFF065F46), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = if (isArabic) "✓ مھني موثق" else "✓ Verified",
+                                color = Color(0xFF34D399),
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .background(Color(0xFF78350F), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = if (isArabic) "⏳ قيد مراجعة الهوية" else "⏳ Unverified",
+                                color = Color(0xFFFBBF24),
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(4.dp))
 

@@ -12,11 +12,20 @@ import com.google.firebase.firestore.Query
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import java.util.UUID
 
 object FirebaseManager {
     private const val TAG = "FirebaseManager"
     
+    // Self-contained coroutine scope for handling background retries and network state flows
+    private val managerScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private var isRetrying = false
+
     private val _isInitialized = MutableStateFlow(false)
     val isInitialized: StateFlow<Boolean> = _isInitialized
 
@@ -36,6 +45,17 @@ object FirebaseManager {
 
     // Active Listener Containers
     private val registrations = mutableListOf<ListenerRegistration>()
+
+    fun scheduleRetry() {
+        if (isRetrying) return
+        isRetrying = true
+        Log.w(TAG, "Sync error detected. Scheduling clean re-subscription of all Firestore real-time listeners in 5 seconds...")
+        managerScope.launch {
+            delay(5000)
+            isRetrying = false
+            forceReSubscribe()
+        }
+    }
 
     fun init(context: Context) {
         if (_isInitialized.value) return
@@ -80,6 +100,19 @@ object FirebaseManager {
                 Log.w(TAG, "Firestore settings configuration warning (already configured?): ${settingsEx.message}")
             }
 
+            // Forcefully enable the Firestore network connectivity socket to guarantee synchronization
+            try {
+                db.enableNetwork().addOnCompleteListener { networkTask ->
+                    if (networkTask.isSuccessful) {
+                        Log.d(TAG, "Firestore network explicitly enabled successfully!")
+                    } else {
+                        Log.e(TAG, "Firestore explicit network activation returned warning status", networkTask.exception)
+                    }
+                }
+            } catch (netErr: Exception) {
+                Log.w(TAG, "Encountered non-blocking issue while calling enableNetwork(): ${netErr.message}")
+            }
+
             _isInitialized.value = true
             Log.d(TAG, "Firebase initialized on 'dalyly2026' with success!")
             
@@ -122,7 +155,10 @@ object FirebaseManager {
                     .setCacheSizeBytes(FirebaseFirestoreSettings.CACHE_SIZE_UNLIMITED)
                     .build()
                 db.firestoreSettings = settings
-                startListening()
+                
+                db.enableNetwork().addOnCompleteListener { 
+                    startListening()
+                }
             } catch (innerEx: Exception) {
                 Log.e(TAG, "Fatal fallback error: ${innerEx.message}")
             }
@@ -134,25 +170,12 @@ object FirebaseManager {
     fun startListeningToChats(onUpdate: (List<ChatMessage>) -> Unit = {}) {
         activeChatListenerRegistration?.remove()
         try {
-            db.collection("chats").get().addOnSuccessListener { snapshots ->
-                if (snapshots != null && !snapshots.isEmpty) {
-                    val items = snapshots.map { doc ->
-                        ChatMessage(
-                            id = doc.id,
-                            senderId = doc.getString("senderId") ?: "",
-                            senderName = doc.getString("senderName") ?: "ضيف",
-                            receiverId = doc.getString("receiverId") ?: "admin",
-                            content = doc.getString("content") ?: "",
-                            timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis()
-                        )
-                    }
-                    chats.value = items
-                    onUpdate(items)
-                }
-            }
             activeChatListenerRegistration = db.collection("chats")
-                .orderBy("timestamp")
                 .addSnapshotListener { snapshots, error ->
+                    if (error != null) {
+                        Log.e(TAG, "Chats sync error: ${error.message}", error)
+                        return@addSnapshotListener
+                    }
                     if (snapshots != null) {
                         val items = snapshots.map { doc ->
                             ChatMessage(
@@ -163,7 +186,7 @@ object FirebaseManager {
                                 content = doc.getString("content") ?: "",
                                 timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis()
                             )
-                        }
+                        }.sortedBy { it.timestamp }
                         chats.value = items
                         onUpdate(items)
                     }
@@ -189,27 +212,27 @@ object FirebaseManager {
     }
 
     fun forceReSubscribe() {
-        Log.d(TAG, "Force re-subscribing all snapshot listeners")
+        Log.d(TAG, "Force re-subscribing all snapshot listeners and enabling Firestore network")
         removeAllListeners()
-        startListening()
+        try {
+            db.enableNetwork().addOnCompleteListener {
+                startListening()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Non-blocking error during forceReSubscribe enableNetwork(): ${e.message}")
+            startListening()
+        }
     }
 
     private fun startListening() {
         if (!_isInitialized.value) return
         try {
-            // App configuration document
+            // 1. App configuration document
             val configDocRef = db.collection("app_config").document("settings")
-            configDocRef.get().addOnSuccessListener { snapshot ->
-                if (snapshot != null && snapshot.exists()) {
-                    val map = snapshot.data
-                    if (map != null) {
-                        appConfig.value = AppConfig.fromMap(map)
-                    }
-                }
-            }
             val configReg = configDocRef.addSnapshotListener(MetadataChanges.EXCLUDE) { snapshot, error ->
                 if (error != null) {
-                    Log.e(TAG, "AppConfig sync error: ${error.message}")
+                    Log.e(TAG, "AppConfig sync error: ${error.message}", error)
+                    scheduleRetry()
                     return@addSnapshotListener
                 }
                 if (snapshot != null && snapshot.exists()) {
@@ -218,28 +241,20 @@ object FirebaseManager {
                         appConfig.value = AppConfig.fromMap(map)
                     }
                 } else {
-                    saveAppConfig(AppConfig())
+                    // Prevent overwriting DB with default empty configurations
+                    appConfig.value = AppConfig()
                 }
             }
             registrations.add(configReg)
 
-            // 2. Categories Snapshot Listener with immediate .get()
+            // 2. Categories Snapshot Listener
             val catColRef = db.collection("categories")
-            catColRef.get().addOnSuccessListener { snapshots ->
-                if (snapshots != null && !snapshots.isEmpty) {
-                    val items = snapshots.map { doc ->
-                        ServiceCategory(
-                            id = doc.id,
-                            nameAr = doc.getString("nameAr") ?: "",
-                            nameEn = doc.getString("nameEn") ?: "",
-                            iconEmoji = doc.getString("iconEmoji") ?: "🎒"
-                        )
-                    }
-                    categories.value = items
-                }
-            }
             val catReg = catColRef.addSnapshotListener { snapshots, error ->
-                if (error != null) return@addSnapshotListener
+                if (error != null) {
+                    Log.e(TAG, "Categories sync error: ${error.message}", error)
+                    scheduleRetry()
+                    return@addSnapshotListener
+                }
                 if (snapshots != null) {
                     val items = snapshots.map { doc ->
                         ServiceCategory(
@@ -254,39 +269,14 @@ object FirebaseManager {
             }
             registrations.add(catReg)
 
-            // 3. Service Providers with immediate .get()
+            // 3. Service Providers
             val provColRef = db.collection("service_providers")
-            provColRef.get().addOnSuccessListener { snapshots ->
-                if (snapshots != null && !snapshots.isEmpty) {
-                    val items = snapshots.map { doc ->
-                        ServiceProvider(
-                            id = doc.id,
-                            fullName = doc.getString("fullName") ?: "",
-                            phone = doc.getString("phone") ?: "",
-                            whatsapp = doc.getString("whatsapp") ?: "",
-                            categoryId = doc.getString("categoryId") ?: "",
-                            subCategory = doc.getString("subCategory") ?: "",
-                            address = doc.getString("address") ?: "",
-                            area = doc.getString("area") ?: "",
-                            imageUrl = doc.getString("imageUrl") ?: "",
-                            idCardUrl = doc.getString("idCardUrl") ?: "",
-                            gpsLat = doc.getDouble("gpsLat") ?: 15.3694,
-                            gpsLng = doc.getDouble("gpsLng") ?: 44.1910,
-                            isVerified = doc.getBoolean("isVerified") ?: false,
-                            isPinned = doc.getBoolean("isPinned") ?: false,
-                            isRecommended = doc.getBoolean("isRecommended") ?: false,
-                            hasPremiumSubscription = doc.getBoolean("hasPremiumSubscription") ?: false,
-                            loyaltyPoints = doc.getLong("loyaltyPoints")?.toInt() ?: 0,
-                            ratingSum = doc.getDouble("ratingSum")?.toFloat() ?: 0.0f,
-                            ratingCount = doc.getLong("ratingCount")?.toInt() ?: 0,
-                            isBlocked = doc.getBoolean("isBlocked") ?: false
-                        )
-                    }
-                    providers.value = items.filter { !it.isBlocked }
-                }
-            }
             val provReg = provColRef.addSnapshotListener { snapshots, error ->
-                if (error != null) return@addSnapshotListener
+                if (error != null) {
+                    Log.e(TAG, "Providers sync error: ${error.message}", error)
+                    scheduleRetry()
+                    return@addSnapshotListener
+                }
                 if (snapshots != null) {
                     val items = snapshots.map { doc ->
                         ServiceProvider(
@@ -317,37 +307,14 @@ object FirebaseManager {
             }
             registrations.add(provReg)
 
-            // 4. Pending Providers with immediate .get()
+            // 4. Pending Providers
             val pendingColRef = db.collection("pending_providers")
-            pendingColRef.get().addOnSuccessListener { snapshots ->
-                if (snapshots != null && !snapshots.isEmpty) {
-                    val items = snapshots.map { doc ->
-                        ServiceProvider(
-                            id = doc.id,
-                            fullName = doc.getString("fullName") ?: "",
-                            phone = doc.getString("phone") ?: "",
-                            whatsapp = doc.getString("whatsapp") ?: "",
-                            categoryId = doc.getString("categoryId") ?: "",
-                            subCategory = doc.getString("subCategory") ?: "",
-                            address = doc.getString("address") ?: "",
-                            area = doc.getString("area") ?: "",
-                            imageUrl = doc.getString("imageUrl") ?: "",
-                            idCardUrl = doc.getString("idCardUrl") ?: "",
-                            gpsLat = doc.getDouble("gpsLat") ?: 15.369,
-                            gpsLng = doc.getDouble("gpsLng") ?: 44.191,
-                            isVerified = false,
-                            isPinned = false,
-                            isRecommended = false,
-                            hasPremiumSubscription = false,
-                            ratingSum = 0.0f,
-                            ratingCount = 0
-                        )
-                    }
-                    pendingProviders.value = items
-                }
-            }
             val pendingReg = pendingColRef.addSnapshotListener { snapshots, error ->
-                if (error != null) return@addSnapshotListener
+                if (error != null) {
+                    Log.e(TAG, "Pending providers sync error: ${error.message}", error)
+                    scheduleRetry()
+                    return@addSnapshotListener
+                }
                 if (snapshots != null) {
                     val items = snapshots.map { doc ->
                         ServiceProvider(
@@ -376,26 +343,14 @@ object FirebaseManager {
             }
             registrations.add(pendingReg)
 
-            // 5. Banners with immediate .get()
+            // 5. Banners
             val bannerColRef = db.collection("banners")
-            bannerColRef.get().addOnSuccessListener { snapshots ->
-                if (snapshots != null && !snapshots.isEmpty) {
-                    val items = snapshots.map { doc ->
-                        BannerAd(
-                            id = doc.id,
-                            title = doc.getString("title") ?: "",
-                            imageUrl = doc.getString("imageUrl") ?: "",
-                            linkUrl = doc.getString("linkUrl") ?: "",
-                            displaySize = doc.getString("displaySize") ?: "M",
-                            durationSeconds = doc.getLong("durationSeconds")?.toInt() ?: 5,
-                            isActive = doc.getBoolean("isActive") ?: true
-                        )
-                    }
-                    banners.value = items.filter { it.isActive }
-                }
-            }
             val banReg = bannerColRef.addSnapshotListener { snapshots, error ->
-                if (error != null) return@addSnapshotListener
+                if (error != null) {
+                    Log.e(TAG, "Banners sync error: ${error.message}", error)
+                    scheduleRetry()
+                    return@addSnapshotListener
+                }
                 if (snapshots != null) {
                     val items = snapshots.map { doc ->
                         BannerAd(
@@ -416,24 +371,14 @@ object FirebaseManager {
             // 6. Chats Live Snapshot Listener
             startListeningToChats()
 
-            // 7. Incident Reports with immediate .get()
+            // 7. Incident Reports
             val incidentColRef = db.collection("incident_reports")
-            incidentColRef.get().addOnSuccessListener { snapshots ->
-                if (snapshots != null && !snapshots.isEmpty) {
-                    val items = snapshots.map { doc ->
-                        IncidentReport(
-                            id = doc.id,
-                            providerId = doc.getString("providerId") ?: "",
-                            providerName = doc.getString("providerName") ?: "",
-                            reporterName = doc.getString("reporterName") ?: "مجهول",
-                            reason = doc.getString("reason") ?: "",
-                            timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis()
-                        )
-                    }
-                    incidentReports.value = items
-                }
-            }
             val incReg = incidentColRef.addSnapshotListener { snapshots, error ->
+                if (error != null) {
+                    Log.e(TAG, "Incident reports sync error: ${error.message}", error)
+                    scheduleRetry()
+                    return@addSnapshotListener
+                }
                 if (snapshots != null) {
                     val items = snapshots.map { doc ->
                         IncidentReport(
@@ -450,22 +395,14 @@ object FirebaseManager {
             }
             registrations.add(incReg)
 
-            // 8. System Activity Log with immediate .get()
-            val logsColRef = db.collection("activity_logs").orderBy("timestamp", Query.Direction.DESCENDING)
-            logsColRef.get().addOnSuccessListener { snapshots ->
-                if (snapshots != null && !snapshots.isEmpty) {
-                    val items = snapshots.map { doc ->
-                        ActivityLog(
-                            id = doc.id,
-                            user = doc.getString("user") ?: "Admin",
-                            action = doc.getString("action") ?: "",
-                            timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis()
-                        )
-                    }
-                    activityLogs.value = items
-                }
-            }
+            // 8. System Activity Log (Ordered in memory for failsafe results)
+            val logsColRef = db.collection("activity_logs")
             val logReg = logsColRef.addSnapshotListener { snapshots, error ->
+                if (error != null) {
+                    Log.e(TAG, "Activity logs sync error: ${error.message}", error)
+                    scheduleRetry()
+                    return@addSnapshotListener
+                }
                 if (snapshots != null) {
                     val items = snapshots.map { doc ->
                         ActivityLog(
@@ -474,29 +411,18 @@ object FirebaseManager {
                             action = doc.getString("action") ?: "",
                             timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis()
                         )
-                    }
+                    }.sortedByDescending { it.timestamp }
                     activityLogs.value = items
                 }
             }
             registrations.add(logReg)
 
-            // 9. Supervisors/Moderators with immediate .get()
+            // 9. Supervisors/Moderators
             val modsColRef = db.collection("moderators")
-            modsColRef.get().addOnSuccessListener { snapshots ->
-                if (snapshots != null && !snapshots.isEmpty) {
-                    val items = snapshots.map { doc ->
-                        Moderator(
-                            id = doc.id,
-                            username = doc.getString("username") ?: "",
-                            password = doc.getString("password") ?: ""
-                        )
-                    }
-                    moderators.value = items
-                }
-            }
             val modReg = modsColRef.addSnapshotListener { snapshots, error ->
                 if (error != null) {
-                    Log.e(TAG, "Moderators snapshot error: ${error.message}")
+                    Log.e(TAG, "Moderators snapshot error: ${error.message}", error)
+                    scheduleRetry()
                     return@addSnapshotListener
                 }
                 if (snapshots != null) {

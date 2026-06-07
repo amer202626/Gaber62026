@@ -59,13 +59,44 @@ class MainActivity : ComponentActivity() {
 // Dynamic theme mapper based on Admin configuration
 @Composable
 fun DalylyTheme(
-    themeType: String,
+    config: AppConfig,
     content: @Composable () -> Unit
 ) {
     val isSystemDark = isSystemInDarkTheme()
     
+    // Convert hex string to Color defensively
+    fun parseColor(hex: String, default: Color): Color {
+        return try {
+            val cleanHex = hex.trim().replace("#", "")
+            if (cleanHex.length == 6) {
+                Color(android.graphics.Color.parseColor("#$cleanHex"))
+            } else if (cleanHex.length == 8) {
+                Color(android.graphics.Color.parseColor("#$cleanHex"))
+            } else {
+                default
+            }
+        } catch (e: Exception) {
+            default
+        }
+    }
+
     // Theme Colors
-    val colors = when (themeType) {
+    val colors = when (config.themeType) {
+        "Custom Colors" -> {
+            val primaryColor = parseColor(config.primaryColorHex, Color(0xFFEAA135))
+            val secondaryColor = parseColor(config.secondaryColorHex, Color(0xFF2D2F33))
+            darkColorScheme(
+                primary = primaryColor,
+                secondary = secondaryColor,
+                tertiary = primaryColor,
+                background = Color(0xFF0A0A0A),
+                surface = Color(0xFF151515),
+                onPrimary = Color.Black,
+                onSecondary = Color.White,
+                onBackground = Color(0xFFFFFDF5),
+                onSurface = Color(0xFFE8E5D8)
+            )
+        }
         "Yemen Red" -> darkColorScheme(
             primary = Color(0xFFCE1126), // Flag Red
             secondary = Color(0xFF000000), // Flag Black
@@ -144,6 +175,12 @@ fun MainAppScreen() {
     var loggedInSupervisor by remember { mutableStateOf<String?>(null) }
     var showLoginDialog by remember { mutableStateOf(false) }
     var loginUser by remember { mutableStateOf("") }
+    
+    // Secret Owner Gateway states
+    var secretClickCount by remember { mutableStateOf(0) }
+    var showOwnerPasswordDialog by remember { mutableStateOf(false) }
+    var ownerPasswordInput by remember { mutableStateOf("") }
+    var isOwnerMode by remember { mutableStateOf(false) }
     var loginPass by remember { mutableStateOf("") }
 
     // Create applications & forms states
@@ -175,7 +212,7 @@ fun MainAppScreen() {
         }
     }
 
-    DalylyTheme(themeType = configState.themeType) {
+    DalylyTheme(config = configState) {
         CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.platform.LayoutDirection.Rtl) {
             Scaffold(
                 modifier = Modifier.fillMaxSize(),
@@ -208,7 +245,16 @@ fun MainAppScreen() {
                         .padding(paddingValues)
                         .background(MaterialTheme.colorScheme.background)
                 ) {
-                    if (loggedInSupervisor != null && isAdminMode) {
+                    if (isOwnerMode) {
+                        OwnerDashboardView(
+                            context = context,
+                            config = configState,
+                            onClose = {
+                                isOwnerMode = false
+                                secretClickCount = 0
+                            }
+                        )
+                    } else if (loggedInSupervisor != null && isAdminMode) {
                         // Admin Panel
                         AdminDashboardView(
                             context = context,
@@ -257,8 +303,13 @@ fun MainAppScreen() {
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
+                                        val logoPainter = if (configState.logoUrl.isNotBlank()) {
+                                            coil.compose.rememberAsyncImagePainter(model = configState.logoUrl)
+                                        } else {
+                                            coil.compose.rememberAsyncImagePainter(model = R.drawable.ic_app_foreground_asset)
+                                        }
                                         Image(
-                                            painter = coil.compose.rememberAsyncImagePainter(model = R.drawable.ic_app_foreground_asset),
+                                            painter = logoPainter,
                                             contentDescription = "Logo",
                                             modifier = Modifier
                                                 .size(46.dp)
@@ -269,10 +320,16 @@ fun MainAppScreen() {
                                                         MaterialTheme.colorScheme.primary
                                                     ), CircleShape
                                                 )
+                                                .clickable {
+                                                    secretClickCount++
+                                                    if (secretClickCount >= 5) {
+                                                        showOwnerPasswordDialog = true
+                                                    }
+                                                }
                                         )
                                         Column {
                                             Text(
-                                                text = "دليل الخدمات اليمني 2026",
+                                                text = configState.appName,
                                                 fontWeight = FontWeight.ExtraBold,
                                                 fontSize = 15.sp,
                                                 color = MaterialTheme.colorScheme.primary
@@ -295,21 +352,46 @@ fun MainAppScreen() {
                                         }
                                     }
 
-                                    // Switch mode panel
-                                    IconButton(
-                                        onClick = { showLoginDialog = true },
-                                        modifier = Modifier
-                                            .size(44.dp)
-                                            .background(
-                                                MaterialTheme.colorScheme.surface,
-                                                RoundedCornerShape(10.dp)
-                                            )
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Lock,
-                                            contentDescription = "Admin Area",
-                                            tint = MaterialTheme.colorScheme.primary
-                                        )
+                                        IconButton(
+                                            onClick = {
+                                                secretClickCount++
+                                                if (secretClickCount >= 5) {
+                                                    showOwnerPasswordDialog = true
+                                                }
+                                            },
+                                            modifier = Modifier
+                                                .size(44.dp)
+                                                .background(
+                                                    MaterialTheme.colorScheme.surface,
+                                                    RoundedCornerShape(10.dp)
+                                                )
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Home,
+                                                contentDescription = "Home Gateway",
+                                                tint = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+
+                                        IconButton(
+                                            onClick = { showLoginDialog = true },
+                                            modifier = Modifier
+                                                .size(44.dp)
+                                                .background(
+                                                    MaterialTheme.colorScheme.surface,
+                                                    RoundedCornerShape(10.dp)
+                                                )
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Lock,
+                                                contentDescription = "Admin Area",
+                                                tint = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -671,13 +753,82 @@ fun MainAppScreen() {
                                             it.username.trim().equals(loginUser.trim(), ignoreCase = true) &&
                                                     it.password.trim() == loginPass.trim()
                                         }
-                                        if (match != null || (loginUser == "admin" && loginPass == "admin2026")) {
-                                            loggedInSupervisor = match?.username ?: "الإدارة العليا"
+                                        val isMainAdmin = loginUser.trim() == "WAM2026" && loginPass.trim() == "maher736462"
+                                        val isLegacyAdmin = loginUser.trim() == "admin" && loginPass.trim() == "admin2026"
+                                        if (match != null || isMainAdmin || isLegacyAdmin) {
+                                            loggedInSupervisor = if (isMainAdmin) "WAM2026" else (match?.username ?: "الإدارة العليا")
                                             isAdminMode = true
                                             showLoginDialog = false
                                             Toast.makeText(context, "أهلاً بك مشرف: $loginUser", Toast.LENGTH_SHORT).show()
                                         } else {
                                             Toast.makeText(context, "البيانات خاطئة أو لحساب معطل", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("دخول")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // SECRET OWNER PIN CHALLENGE POPUP
+            if (showOwnerPasswordDialog) {
+                Dialog(onDismissRequest = { showOwnerPasswordDialog = false }) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                "👑 بوابة المالك السرية لتعميم الهوية",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.fillMaxWidth(),
+                                textAlign = TextAlign.Center
+                            )
+
+                            TextField(
+                                value = ownerPasswordInput,
+                                onValueChange = { ownerPasswordInput = it },
+                                label = { Text("رمز مرور المالك السري  (Owner Password)") },
+                                singleLine = true,
+                                visualTransformation = PasswordVisualTransformation(),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                TextButton(
+                                    onClick = { 
+                                        showOwnerPasswordDialog = false 
+                                        ownerPasswordInput = ""
+                                        secretClickCount = 0
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("إلغاء")
+                                }
+                                Button(
+                                    onClick = {
+                                        if (ownerPasswordInput.trim() == "maher--736462") {
+                                            isOwnerMode = true
+                                            showOwnerPasswordDialog = false
+                                            ownerPasswordInput = ""
+                                            secretClickCount = 0
+                                            Toast.makeText(context, "أهلاً بك مالك التطبيق!", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            Toast.makeText(context, "الرمز السري غير صحيح!", Toast.LENGTH_SHORT).show()
                                         }
                                     },
                                     modifier = Modifier.weight(1f)
@@ -1929,6 +2080,168 @@ fun AdminDashboardView(
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun OwnerDashboardView(
+    context: Context,
+    config: AppConfig,
+    onClose: () -> Unit
+) {
+    var appNameInput by remember { mutableStateOf(config.appName) }
+    var primaryColorInput by remember { mutableStateOf(config.primaryColorHex) }
+    var secondaryColorInput by remember { mutableStateOf(config.secondaryColorHex) }
+    var logoUrlInput by remember { mutableStateOf(config.logoUrl) }
+    var themeTypeInput by remember { mutableStateOf(config.themeType) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // Owner Header Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "👑 البوابة السحابية السرية للمالك",
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 16.sp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "تحكم مباشر بهوية التطبيق وشعاره وثيمه لجميع الأجهزة",
+                        fontSize = 11.sp,
+                        color = Color.LightGray
+                    )
+                }
+
+                Button(
+                    onClick = onClose,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("إغلاق", fontSize = 11.sp, color = Color.White)
+                }
+            }
+        }
+
+        // Section settings
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "⚙️ إعدادات هوية العلامة التجارية:",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+
+                // 1. App name
+                TextField(
+                    value = appNameInput,
+                    onValueChange = { appNameInput = it },
+                    label = { Text("اسم التطبيق المعروض (App Display Name)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+
+                // 2. Logo URL
+                TextField(
+                    value = logoUrlInput,
+                    onValueChange = { logoUrlInput = it },
+                    label = { Text("رابط الشعار المخصص (Custom Logo URL)") },
+                    placeholder = { Text("https://example.com/logo.png") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+
+                // 3. Select theme mode or Custom Colors
+                Text("نوع الثيم لتلوين التطبيق:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                val themes = listOf("Classic Dark", "Yemen Red", "Ocean Blue", "luxury Golden", "Custom Colors")
+                themes.forEach { th ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { themeTypeInput = th }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = themeTypeInput == th, onClick = { themeTypeInput = th })
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(text = th, fontSize = 13.sp)
+                    }
+                }
+
+                if (themeTypeInput == "Custom Colors") {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("حدد الألوان السداسية عشرية (Hex Colors):", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    
+                    TextField(
+                        value = primaryColorInput,
+                        onValueChange = { primaryColorInput = it },
+                        label = { Text("اللون الأساسي السداسي (Primary Hex e.g. #EAA135)") },
+                        placeholder = { Text("#EAA135") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+
+                    TextField(
+                        value = secondaryColorInput,
+                        onValueChange = { secondaryColorInput = it },
+                        label = { Text("اللون الثانوي السداسي (Secondary Hex e.g. #2D2F33)") },
+                        placeholder = { Text("#2D2F33") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Button(
+                    onClick = {
+                        if (appNameInput.trim().isEmpty()) {
+                            Toast.makeText(context, "الرجاء تحديد اسم صالح للتطبيق", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                        // Save configuration
+                        val updated = config.copy(
+                            appName = appNameInput.trim(),
+                            logoUrl = logoUrlInput.trim(),
+                            themeType = themeTypeInput,
+                            primaryColorHex = primaryColorInput.trim(),
+                            secondaryColorHex = secondaryColorInput.trim()
+                        )
+                        FirebaseManager.updateConfig(updated) {
+                            Toast.makeText(context, "تم حفظ وتعميم التعديلات السحرية على كافة الأجهزة فوراً!", Toast.LENGTH_LONG).show()
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("حفظ ونشر التحديثات للجميع 💾", fontWeight = FontWeight.Bold)
                 }
             }
         }

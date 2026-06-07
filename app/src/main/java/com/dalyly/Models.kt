@@ -66,7 +66,11 @@ data class ChatMessage(
 
 data class AppConfig(
     val id: String = "current_config",
-    val themeType: String = "Classic Dark", // Classic Dark, Yemen Red, Ocean Blue, luxury Golden
+    val themeType: String = "Classic Dark", // Classic Dark, Yemen Red, Ocean Blue, luxury Golden, Custom Colors
+    val appName: String = "دليل الخدمات",
+    val logoUrl: String = "",
+    val primaryColorHex: String = "#EAA135",
+    val secondaryColorHex: String = "#2D2F33",
     val chatIconSize: Int = 56,
     val chatIconColorHex: String = "#D4AF37", // Gold
     val chatIconVisible: Boolean = true,

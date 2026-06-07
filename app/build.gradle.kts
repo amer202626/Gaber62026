@@ -4,6 +4,7 @@ plugins {
   alias(libs.plugins.google.devtools.ksp)
   alias(libs.plugins.roborazzi)
   alias(libs.plugins.secrets)
+  id("com.google.gms.google-services")
 }
 
 android {
@@ -73,6 +74,7 @@ dependencies {
   implementation(platform(libs.firebase.bom))
   implementation("com.google.firebase:firebase-firestore")
   implementation("com.google.firebase:firebase-storage")
+  implementation("com.google.firebase:firebase-auth")
   implementation(libs.coil.compose)
   // implementation(libs.accompanist.permissions)
   implementation(libs.androidx.activity.compose)

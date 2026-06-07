@@ -60,7 +60,7 @@ object FirebaseManager {
     fun init(context: Context) {
         if (_isInitialized.value) return
         try {
-            // Programmatic configuration matching user provided google-services.json
+            // Setup proper fallback builder options based on the user provided google-services.json
             val builder = FirebaseOptions.Builder()
                 .setApplicationId("1:89823302013:android:1910d098b23f547aa3fc14")
                 .setApiKey("AIzaSyCgFnPJso1f2mwB1jvyRbGzZReAdf4eug0")
@@ -70,7 +70,13 @@ object FirebaseManager {
 
             val apps = FirebaseApp.getApps(context)
             val app = if (apps.isEmpty()) {
-                FirebaseApp.initializeApp(context, builder)
+                try {
+                    // Try auto configuration via google-services.json first!
+                    FirebaseApp.initializeApp(context)
+                } catch (autoEx: Exception) {
+                    Log.w(TAG, "Default automatic FirebaseApp initialization failed, using builder: ${autoEx.message}")
+                    FirebaseApp.initializeApp(context, builder)
+                }
             } else {
                 val existingDefault = apps.firstOrNull { it.name == FirebaseApp.DEFAULT_APP_NAME }
                 if (existingDefault != null && existingDefault.options.projectId != "dalyly2026") {
@@ -85,8 +91,29 @@ object FirebaseManager {
                 }
             }
 
-            db = FirebaseFirestore.getInstance(app)
-            storage = FirebaseStorage.getInstance(app)
+            db = FirebaseFirestore.getInstance(app!!)
+            storage = FirebaseStorage.getInstance(app!!)
+
+            // Dynamic Anonymous Login to unlock security rules for remote syncing
+            try {
+                val auth = com.google.firebase.auth.FirebaseAuth.getInstance(app!!)
+                if (auth.currentUser == null) {
+                    auth.signInAnonymously()
+                        .addOnCompleteListener { task ->
+                            if (task.isSuccessful) {
+                                Log.d(TAG, "FirebaseAuth session established anonymously. UID: ${task.result?.user?.uid}")
+                                forceReSubscribe()
+                            } else {
+                                Log.e(TAG, "FirebaseAuth anonymous sign-in failed! If security rules require auth, sync will be blocked.", task.exception)
+                            }
+                        }
+                } else {
+                    Log.d(TAG, "FirebaseAuth active session recovered for UID: ${auth.currentUser?.uid}")
+                }
+            } catch (authEx: Exception) {
+                Log.w(TAG, "Non-blocking error during FirebaseAuth startup: ${authEx.message}")
+            }
+
             
             // ENABLING OFFLINE PERSISTENCE AND CACHE FOR INSTANT OFFLINE MODE
             try {

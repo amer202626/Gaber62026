@@ -68,13 +68,14 @@ object FirebaseManager {
             db = FirebaseFirestore.getInstance(app)
             storage = FirebaseStorage.getInstance(app)
             
-            // STRICTLY DISABLE OFFLINE PERSISTENCE / LOCAL CACHE as requested by the user
+            // ENABLING OFFLINE PERSISTENCE AND CACHE FOR INSTANT OFFLINE MODE
             try {
                 val settings = FirebaseFirestoreSettings.Builder()
-                    .setPersistenceEnabled(false) // Bypasses local storage, forces live connection
+                    .setPersistenceEnabled(true) // Enables local storage cache
+                    .setCacheSizeBytes(FirebaseFirestoreSettings.CACHE_SIZE_UNLIMITED)
                     .build()
                 db.firestoreSettings = settings
-                Log.d(TAG, "Firestore cache persistence explicitly disabled for direct real-time sync!")
+                Log.d(TAG, "Firestore cache persistence enabled with CACHE_SIZE_UNLIMITED as requested by user!")
             } catch (settingsEx: Exception) {
                 Log.w(TAG, "Firestore settings configuration warning (already configured?): ${settingsEx.message}")
             }
@@ -82,6 +83,29 @@ object FirebaseManager {
             _isInitialized.value = true
             Log.d(TAG, "Firebase initialized on 'dalyly2026' with success!")
             
+            // Programmatic internet monitoring for forcing subscriber fresh reload on reconnect
+            try {
+                val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+                if (connectivityManager != null) {
+                    val request = android.net.NetworkRequest.Builder()
+                        .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                        .build()
+                    connectivityManager.registerNetworkCallback(request, object : android.net.ConnectivityManager.NetworkCallback() {
+                        private var isFirst = true
+                        override fun onAvailable(network: android.net.Network) {
+                            if (isFirst) {
+                                isFirst = false
+                                return
+                            }
+                            Log.d(TAG, "Internet connection re-established! Forcing clean re-subscription to prevent frozen sync.")
+                            forceReSubscribe()
+                        }
+                    })
+                }
+            } catch (netEx: Exception) {
+                Log.w(TAG, "Connectivity network observer register warning: ${netEx.message}")
+            }
+
             // Seed base categories in background if list is empty
             seedDefaultCategories()
             
@@ -90,11 +114,13 @@ object FirebaseManager {
 
         } catch (e: Exception) {
             Log.e(TAG, "Critical Firebase Initialization Error: ${e.message}")
-            // Do NOT fall back to local mock arrays. Re-raise or set initialized to True anyway so Firestore can retry natively.
             _isInitialized.value = true
             try {
                 db = FirebaseFirestore.getInstance()
-                val settings = FirebaseFirestoreSettings.Builder().setPersistenceEnabled(false).build()
+                val settings = FirebaseFirestoreSettings.Builder()
+                    .setPersistenceEnabled(true)
+                    .setCacheSizeBytes(FirebaseFirestoreSettings.CACHE_SIZE_UNLIMITED)
+                    .build()
                 db.firestoreSettings = settings
                 startListening()
             } catch (innerEx: Exception) {
@@ -103,135 +129,28 @@ object FirebaseManager {
         }
     }
 
-    private fun startListening() {
-        if (!_isInitialized.value) return
+    var activeChatListenerRegistration: ListenerRegistration? = null
+
+    fun startListeningToChats(onUpdate: (List<ChatMessage>) -> Unit = {}) {
+        activeChatListenerRegistration?.remove()
         try {
-            // 1. App configuration
-            val configReg = db.collection("app_config").document("settings")
-                .addSnapshotListener(MetadataChanges.EXCLUDE) { snapshot, error ->
-                    if (error != null) {
-                        Log.e(TAG, "AppConfig sync error: ${error.message}")
-                        return@addSnapshotListener
+            db.collection("chats").get().addOnSuccessListener { snapshots ->
+                if (snapshots != null && !snapshots.isEmpty) {
+                    val items = snapshots.map { doc ->
+                        ChatMessage(
+                            id = doc.id,
+                            senderId = doc.getString("senderId") ?: "",
+                            senderName = doc.getString("senderName") ?: "ضيف",
+                            receiverId = doc.getString("receiverId") ?: "admin",
+                            content = doc.getString("content") ?: "",
+                            timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis()
+                        )
                     }
-                    if (snapshot != null && snapshot.exists()) {
-                        val map = snapshot.data
-                        if (map != null) {
-                            appConfig.value = AppConfig.fromMap(map)
-                        }
-                    } else {
-                        // Seed default configuration if none exists
-                        saveAppConfig(AppConfig())
-                    }
+                    chats.value = items
+                    onUpdate(items)
                 }
-            registrations.add(configReg)
-
-            // 2. Categories Snapshot Listener
-            val catReg = db.collection("categories")
-                .addSnapshotListener { snapshots, error ->
-                    if (error != null) return@addSnapshotListener
-                    if (snapshots != null) {
-                        val items = snapshots.map { doc ->
-                            ServiceCategory(
-                                id = doc.id,
-                                nameAr = doc.getString("nameAr") ?: "",
-                                nameEn = doc.getString("nameEn") ?: "",
-                                iconEmoji = doc.getString("iconEmoji") ?: "🎒"
-                            )
-                        }
-                        categories.value = items
-                    }
-                }
-            registrations.add(catReg)
-
-            // 3. Service Providers Snapshot Listener
-            val provReg = db.collection("service_providers")
-                .addSnapshotListener { snapshots, error ->
-                    if (error != null) return@addSnapshotListener
-                    if (snapshots != null) {
-                        val items = snapshots.map { doc ->
-                            ServiceProvider(
-                                id = doc.id,
-                                fullName = doc.getString("fullName") ?: "",
-                                phone = doc.getString("phone") ?: "",
-                                whatsapp = doc.getString("whatsapp") ?: "",
-                                categoryId = doc.getString("categoryId") ?: "",
-                                subCategory = doc.getString("subCategory") ?: "",
-                                address = doc.getString("address") ?: "",
-                                area = doc.getString("area") ?: "",
-                                imageUrl = doc.getString("imageUrl") ?: "",
-                                idCardUrl = doc.getString("idCardUrl") ?: "",
-                                gpsLat = doc.getDouble("gpsLat") ?: 15.3694,
-                                gpsLng = doc.getDouble("gpsLng") ?: 44.1910,
-                                isVerified = doc.getBoolean("isVerified") ?: false,
-                                isPinned = doc.getBoolean("isPinned") ?: false,
-                                isRecommended = doc.getBoolean("isRecommended") ?: false,
-                                hasPremiumSubscription = doc.getBoolean("hasPremiumSubscription") ?: false,
-                                loyaltyPoints = doc.getLong("loyaltyPoints")?.toInt() ?: 0,
-                                ratingSum = doc.getDouble("ratingSum")?.toFloat() ?: 0.0f,
-                                ratingCount = doc.getLong("ratingCount")?.toInt() ?: 0,
-                                isBlocked = doc.getBoolean("isBlocked") ?: false
-                            )
-                        }
-                        providers.value = items.filter { !it.isBlocked }
-                    }
-                }
-            registrations.add(provReg)
-
-            // 4. Pending Providers Snapshot Listener
-            val pendingReg = db.collection("pending_providers")
-                .addSnapshotListener { snapshots, error ->
-                    if (error != null) return@addSnapshotListener
-                    if (snapshots != null) {
-                        val items = snapshots.map { doc ->
-                            ServiceProvider(
-                                id = doc.id,
-                                fullName = doc.getString("fullName") ?: "",
-                                phone = doc.getString("phone") ?: "",
-                                whatsapp = doc.getString("whatsapp") ?: "",
-                                categoryId = doc.getString("categoryId") ?: "",
-                                subCategory = doc.getString("subCategory") ?: "",
-                                address = doc.getString("address") ?: "",
-                                area = doc.getString("area") ?: "",
-                                imageUrl = doc.getString("imageUrl") ?: "",
-                                idCardUrl = doc.getString("idCardUrl") ?: "",
-                                gpsLat = doc.getDouble("gpsLat") ?: 15.369,
-                                gpsLng = doc.getDouble("gpsLng") ?: 44.191,
-                                isVerified = false,
-                                isPinned = false,
-                                isRecommended = false,
-                                hasPremiumSubscription = false,
-                                ratingSum = 0.0f,
-                                ratingCount = 0
-                            )
-                        }
-                        pendingProviders.value = items
-                    }
-                }
-            registrations.add(pendingReg)
-
-            // 5. Banners Snapshot Listener
-            val banReg = db.collection("banners")
-                .addSnapshotListener { snapshots, error ->
-                    if (error != null) return@addSnapshotListener
-                    if (snapshots != null) {
-                        val items = snapshots.map { doc ->
-                            BannerAd(
-                                id = doc.id,
-                                title = doc.getString("title") ?: "",
-                                imageUrl = doc.getString("imageUrl") ?: "",
-                                linkUrl = doc.getString("linkUrl") ?: "",
-                                displaySize = doc.getString("displaySize") ?: "M",
-                                durationSeconds = doc.getLong("durationSeconds")?.toInt() ?: 5,
-                                isActive = doc.getBoolean("isActive") ?: true
-                            )
-                        }
-                        banners.value = items.filter { it.isActive }
-                    }
-                }
-            registrations.add(banReg)
-
-            // 6. Chats Live Snapshot Listener
-            val chatReg = db.collection("chats")
+            }
+            activeChatListenerRegistration = db.collection("chats")
                 .orderBy("timestamp")
                 .addSnapshotListener { snapshots, error ->
                     if (snapshots != null) {
@@ -246,65 +165,351 @@ object FirebaseManager {
                             )
                         }
                         chats.value = items
+                        onUpdate(items)
                     }
                 }
-            registrations.add(chatReg)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error adding chat listener session: ${e.message}")
+        }
+    }
 
-            // 7. Incident Reports
-            val incReg = db.collection("incident_reports")
-                .addSnapshotListener { snapshots, error ->
-                    if (snapshots != null) {
-                        val items = snapshots.map { doc ->
-                            IncidentReport(
-                                id = doc.id,
-                                providerId = doc.getString("providerId") ?: "",
-                                providerName = doc.getString("providerName") ?: "",
-                                reporterName = doc.getString("reporterName") ?: "مجهول",
-                                reason = doc.getString("reason") ?: "",
-                                timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis()
-                            )
-                        }
-                        incidentReports.value = items
+    fun removeAllListeners() {
+        synchronized(registrations) {
+            registrations.forEach {
+                try {
+                    it.remove()
+                } catch (ex: Exception) {
+                    Log.w(TAG, "Error clearing listener: ${ex.message}")
+                }
+            }
+            registrations.clear()
+        }
+        activeChatListenerRegistration?.remove()
+        activeChatListenerRegistration = null
+    }
+
+    fun forceReSubscribe() {
+        Log.d(TAG, "Force re-subscribing all snapshot listeners")
+        removeAllListeners()
+        startListening()
+    }
+
+    private fun startListening() {
+        if (!_isInitialized.value) return
+        try {
+            // App configuration document
+            val configDocRef = db.collection("app_config").document("settings")
+            configDocRef.get().addOnSuccessListener { snapshot ->
+                if (snapshot != null && snapshot.exists()) {
+                    val map = snapshot.data
+                    if (map != null) {
+                        appConfig.value = AppConfig.fromMap(map)
                     }
                 }
+            }
+            val configReg = configDocRef.addSnapshotListener(MetadataChanges.EXCLUDE) { snapshot, error ->
+                if (error != null) {
+                    Log.e(TAG, "AppConfig sync error: ${error.message}")
+                    return@addSnapshotListener
+                }
+                if (snapshot != null && snapshot.exists()) {
+                    val map = snapshot.data
+                    if (map != null) {
+                        appConfig.value = AppConfig.fromMap(map)
+                    }
+                } else {
+                    saveAppConfig(AppConfig())
+                }
+            }
+            registrations.add(configReg)
+
+            // 2. Categories Snapshot Listener with immediate .get()
+            val catColRef = db.collection("categories")
+            catColRef.get().addOnSuccessListener { snapshots ->
+                if (snapshots != null && !snapshots.isEmpty) {
+                    val items = snapshots.map { doc ->
+                        ServiceCategory(
+                            id = doc.id,
+                            nameAr = doc.getString("nameAr") ?: "",
+                            nameEn = doc.getString("nameEn") ?: "",
+                            iconEmoji = doc.getString("iconEmoji") ?: "🎒"
+                        )
+                    }
+                    categories.value = items
+                }
+            }
+            val catReg = catColRef.addSnapshotListener { snapshots, error ->
+                if (error != null) return@addSnapshotListener
+                if (snapshots != null) {
+                    val items = snapshots.map { doc ->
+                        ServiceCategory(
+                            id = doc.id,
+                            nameAr = doc.getString("nameAr") ?: "",
+                            nameEn = doc.getString("nameEn") ?: "",
+                            iconEmoji = doc.getString("iconEmoji") ?: "🎒"
+                        )
+                    }
+                    categories.value = items
+                }
+            }
+            registrations.add(catReg)
+
+            // 3. Service Providers with immediate .get()
+            val provColRef = db.collection("service_providers")
+            provColRef.get().addOnSuccessListener { snapshots ->
+                if (snapshots != null && !snapshots.isEmpty) {
+                    val items = snapshots.map { doc ->
+                        ServiceProvider(
+                            id = doc.id,
+                            fullName = doc.getString("fullName") ?: "",
+                            phone = doc.getString("phone") ?: "",
+                            whatsapp = doc.getString("whatsapp") ?: "",
+                            categoryId = doc.getString("categoryId") ?: "",
+                            subCategory = doc.getString("subCategory") ?: "",
+                            address = doc.getString("address") ?: "",
+                            area = doc.getString("area") ?: "",
+                            imageUrl = doc.getString("imageUrl") ?: "",
+                            idCardUrl = doc.getString("idCardUrl") ?: "",
+                            gpsLat = doc.getDouble("gpsLat") ?: 15.3694,
+                            gpsLng = doc.getDouble("gpsLng") ?: 44.1910,
+                            isVerified = doc.getBoolean("isVerified") ?: false,
+                            isPinned = doc.getBoolean("isPinned") ?: false,
+                            isRecommended = doc.getBoolean("isRecommended") ?: false,
+                            hasPremiumSubscription = doc.getBoolean("hasPremiumSubscription") ?: false,
+                            loyaltyPoints = doc.getLong("loyaltyPoints")?.toInt() ?: 0,
+                            ratingSum = doc.getDouble("ratingSum")?.toFloat() ?: 0.0f,
+                            ratingCount = doc.getLong("ratingCount")?.toInt() ?: 0,
+                            isBlocked = doc.getBoolean("isBlocked") ?: false
+                        )
+                    }
+                    providers.value = items.filter { !it.isBlocked }
+                }
+            }
+            val provReg = provColRef.addSnapshotListener { snapshots, error ->
+                if (error != null) return@addSnapshotListener
+                if (snapshots != null) {
+                    val items = snapshots.map { doc ->
+                        ServiceProvider(
+                            id = doc.id,
+                            fullName = doc.getString("fullName") ?: "",
+                            phone = doc.getString("phone") ?: "",
+                            whatsapp = doc.getString("whatsapp") ?: "",
+                            categoryId = doc.getString("categoryId") ?: "",
+                            subCategory = doc.getString("subCategory") ?: "",
+                            address = doc.getString("address") ?: "",
+                            area = doc.getString("area") ?: "",
+                            imageUrl = doc.getString("imageUrl") ?: "",
+                            idCardUrl = doc.getString("idCardUrl") ?: "",
+                            gpsLat = doc.getDouble("gpsLat") ?: 15.3694,
+                            gpsLng = doc.getDouble("gpsLng") ?: 44.1910,
+                            isVerified = doc.getBoolean("isVerified") ?: false,
+                            isPinned = doc.getBoolean("isPinned") ?: false,
+                            isRecommended = doc.getBoolean("isRecommended") ?: false,
+                            hasPremiumSubscription = doc.getBoolean("hasPremiumSubscription") ?: false,
+                            loyaltyPoints = doc.getLong("loyaltyPoints")?.toInt() ?: 0,
+                            ratingSum = doc.getDouble("ratingSum")?.toFloat() ?: 0.0f,
+                            ratingCount = doc.getLong("ratingCount")?.toInt() ?: 0,
+                            isBlocked = doc.getBoolean("isBlocked") ?: false
+                        )
+                    }
+                    providers.value = items.filter { !it.isBlocked }
+                }
+            }
+            registrations.add(provReg)
+
+            // 4. Pending Providers with immediate .get()
+            val pendingColRef = db.collection("pending_providers")
+            pendingColRef.get().addOnSuccessListener { snapshots ->
+                if (snapshots != null && !snapshots.isEmpty) {
+                    val items = snapshots.map { doc ->
+                        ServiceProvider(
+                            id = doc.id,
+                            fullName = doc.getString("fullName") ?: "",
+                            phone = doc.getString("phone") ?: "",
+                            whatsapp = doc.getString("whatsapp") ?: "",
+                            categoryId = doc.getString("categoryId") ?: "",
+                            subCategory = doc.getString("subCategory") ?: "",
+                            address = doc.getString("address") ?: "",
+                            area = doc.getString("area") ?: "",
+                            imageUrl = doc.getString("imageUrl") ?: "",
+                            idCardUrl = doc.getString("idCardUrl") ?: "",
+                            gpsLat = doc.getDouble("gpsLat") ?: 15.369,
+                            gpsLng = doc.getDouble("gpsLng") ?: 44.191,
+                            isVerified = false,
+                            isPinned = false,
+                            isRecommended = false,
+                            hasPremiumSubscription = false,
+                            ratingSum = 0.0f,
+                            ratingCount = 0
+                        )
+                    }
+                    pendingProviders.value = items
+                }
+            }
+            val pendingReg = pendingColRef.addSnapshotListener { snapshots, error ->
+                if (error != null) return@addSnapshotListener
+                if (snapshots != null) {
+                    val items = snapshots.map { doc ->
+                        ServiceProvider(
+                            id = doc.id,
+                            fullName = doc.getString("fullName") ?: "",
+                            phone = doc.getString("phone") ?: "",
+                            whatsapp = doc.getString("whatsapp") ?: "",
+                            categoryId = doc.getString("categoryId") ?: "",
+                            subCategory = doc.getString("subCategory") ?: "",
+                            address = doc.getString("address") ?: "",
+                            area = doc.getString("area") ?: "",
+                            imageUrl = doc.getString("imageUrl") ?: "",
+                            idCardUrl = doc.getString("idCardUrl") ?: "",
+                            gpsLat = doc.getDouble("gpsLat") ?: 15.369,
+                            gpsLng = doc.getDouble("gpsLng") ?: 44.191,
+                            isVerified = false,
+                            isPinned = false,
+                            isRecommended = false,
+                            hasPremiumSubscription = false,
+                            ratingSum = 0.0f,
+                            ratingCount = 0
+                        )
+                    }
+                    pendingProviders.value = items
+                }
+            }
+            registrations.add(pendingReg)
+
+            // 5. Banners with immediate .get()
+            val bannerColRef = db.collection("banners")
+            bannerColRef.get().addOnSuccessListener { snapshots ->
+                if (snapshots != null && !snapshots.isEmpty) {
+                    val items = snapshots.map { doc ->
+                        BannerAd(
+                            id = doc.id,
+                            title = doc.getString("title") ?: "",
+                            imageUrl = doc.getString("imageUrl") ?: "",
+                            linkUrl = doc.getString("linkUrl") ?: "",
+                            displaySize = doc.getString("displaySize") ?: "M",
+                            durationSeconds = doc.getLong("durationSeconds")?.toInt() ?: 5,
+                            isActive = doc.getBoolean("isActive") ?: true
+                        )
+                    }
+                    banners.value = items.filter { it.isActive }
+                }
+            }
+            val banReg = bannerColRef.addSnapshotListener { snapshots, error ->
+                if (error != null) return@addSnapshotListener
+                if (snapshots != null) {
+                    val items = snapshots.map { doc ->
+                        BannerAd(
+                            id = doc.id,
+                            title = doc.getString("title") ?: "",
+                            imageUrl = doc.getString("imageUrl") ?: "",
+                            linkUrl = doc.getString("linkUrl") ?: "",
+                            displaySize = doc.getString("displaySize") ?: "M",
+                            durationSeconds = doc.getLong("durationSeconds")?.toInt() ?: 5,
+                            isActive = doc.getBoolean("isActive") ?: true
+                        )
+                    }
+                    banners.value = items.filter { it.isActive }
+                }
+            }
+            registrations.add(banReg)
+
+            // 6. Chats Live Snapshot Listener
+            startListeningToChats()
+
+            // 7. Incident Reports with immediate .get()
+            val incidentColRef = db.collection("incident_reports")
+            incidentColRef.get().addOnSuccessListener { snapshots ->
+                if (snapshots != null && !snapshots.isEmpty) {
+                    val items = snapshots.map { doc ->
+                        IncidentReport(
+                            id = doc.id,
+                            providerId = doc.getString("providerId") ?: "",
+                            providerName = doc.getString("providerName") ?: "",
+                            reporterName = doc.getString("reporterName") ?: "مجهول",
+                            reason = doc.getString("reason") ?: "",
+                            timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis()
+                        )
+                    }
+                    incidentReports.value = items
+                }
+            }
+            val incReg = incidentColRef.addSnapshotListener { snapshots, error ->
+                if (snapshots != null) {
+                    val items = snapshots.map { doc ->
+                        IncidentReport(
+                            id = doc.id,
+                            providerId = doc.getString("providerId") ?: "",
+                            providerName = doc.getString("providerName") ?: "",
+                            reporterName = doc.getString("reporterName") ?: "مجهول",
+                            reason = doc.getString("reason") ?: "",
+                            timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis()
+                        )
+                    }
+                    incidentReports.value = items
+                }
+            }
             registrations.add(incReg)
 
-            // 8. System Activity Log
-            val logReg = db.collection("activity_logs")
-                .orderBy("timestamp", Query.Direction.DESCENDING)
-                .addSnapshotListener { snapshots, error ->
-                    if (snapshots != null) {
-                        val items = snapshots.map { doc ->
-                            ActivityLog(
-                                id = doc.id,
-                                user = doc.getString("user") ?: "Admin",
-                                action = doc.getString("action") ?: "",
-                                timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis()
-                            )
-                        }
-                        activityLogs.value = items
+            // 8. System Activity Log with immediate .get()
+            val logsColRef = db.collection("activity_logs").orderBy("timestamp", Query.Direction.DESCENDING)
+            logsColRef.get().addOnSuccessListener { snapshots ->
+                if (snapshots != null && !snapshots.isEmpty) {
+                    val items = snapshots.map { doc ->
+                        ActivityLog(
+                            id = doc.id,
+                            user = doc.getString("user") ?: "Admin",
+                            action = doc.getString("action") ?: "",
+                            timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis()
+                        )
                     }
+                    activityLogs.value = items
                 }
+            }
+            val logReg = logsColRef.addSnapshotListener { snapshots, error ->
+                if (snapshots != null) {
+                    val items = snapshots.map { doc ->
+                        ActivityLog(
+                            id = doc.id,
+                            user = doc.getString("user") ?: "Admin",
+                            action = doc.getString("action") ?: "",
+                            timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis()
+                        )
+                    }
+                    activityLogs.value = items
+                }
+            }
             registrations.add(logReg)
 
-            // 9. Supervisors/Moderators Live snapshot
-            val modReg = db.collection("moderators")
-                .addSnapshotListener { snapshots, error ->
-                    if (error != null) {
-                        Log.e(TAG, "Moderators snapshot error: ${error.message}")
-                        return@addSnapshotListener
+            // 9. Supervisors/Moderators with immediate .get()
+            val modsColRef = db.collection("moderators")
+            modsColRef.get().addOnSuccessListener { snapshots ->
+                if (snapshots != null && !snapshots.isEmpty) {
+                    val items = snapshots.map { doc ->
+                        Moderator(
+                            id = doc.id,
+                            username = doc.getString("username") ?: "",
+                            password = doc.getString("password") ?: ""
+                        )
                     }
-                    if (snapshots != null) {
-                        val items = snapshots.map { doc ->
-                            Moderator(
-                                id = doc.id,
-                                username = doc.getString("username") ?: "",
-                                password = doc.getString("password") ?: ""
-                            )
-                        }
-                        moderators.value = items
-                    }
+                    moderators.value = items
                 }
+            }
+            val modReg = modsColRef.addSnapshotListener { snapshots, error ->
+                if (error != null) {
+                    Log.e(TAG, "Moderators snapshot error: ${error.message}")
+                    return@addSnapshotListener
+                }
+                if (snapshots != null) {
+                    val items = snapshots.map { doc ->
+                        Moderator(
+                            id = doc.id,
+                            username = doc.getString("username") ?: "",
+                            password = doc.getString("password") ?: ""
+                        )
+                    }
+                    moderators.value = items
+                }
+            }
             registrations.add(modReg)
 
         } catch (e: Exception) {
@@ -347,22 +552,13 @@ object FirebaseManager {
             "timestamp" to System.currentTimeMillis()
         )
 
-        if (_isInitialized.value) {
-            db.collection("pending_providers").document(id).set(dataMap)
-                .addOnSuccessListener {
-                    onComplete(true, "تم إرسال طلب الانضمام بنجاح وسيتم إقراره من قبل الإدارة قريباً!")
-                }
-                .addOnFailureListener { e ->
-                    // Network failure callback with cached save
-                    onComplete(true, "تم حفظ الطلب محلياً في وضع عدم الاتصال للرفع التلقائي لاحقاً!")
-                }
-        } else {
-            // Offline Cache Logic
-            val list = pendingProviders.value.toMutableList()
-            list.add(candidate.copy(imageUrl = profileUrl, idCardUrl = idCardUrl))
-            pendingProviders.value = list
-            onComplete(true, "تم إرسال الطلب في وضع عدم الاتصال. سيتم مزامنته عند عودة الشبكة!")
-        }
+        db.collection("pending_providers").document(id).set(dataMap)
+            .addOnSuccessListener {
+                onComplete(true, "تم إرسال طلب الانضمام بنجاح وسيتم إقراره من قبل الإدارة قريباً!")
+            }
+            .addOnFailureListener { e ->
+                onComplete(false, "حدث خطأ أثناء إرسال الطلب: ${e.message}")
+            }
     }
 
     // Admin commands
@@ -392,46 +588,24 @@ object FirebaseManager {
             "isBlocked" to false
         )
 
-        if (_isInitialized.value) {
-            db.collection("service_providers").document(id).set(dataMap)
-                .addOnSuccessListener {
-                    db.collection("pending_providers").document(id).delete()
-                    logActivity("المدير", "تمت الموافقة على مقدم الخدمة: ${updated.fullName}")
-                    onComplete()
-                }
-        } else {
-            val pendingList = pendingProviders.value.toMutableList().apply { removeIf { it.id == id } }
-            pendingProviders.value = pendingList
-
-            val activeList = providers.value.toMutableList().apply { add(updated) }
-            providers.value = activeList
-            onComplete()
-        }
+        db.collection("service_providers").document(id).set(dataMap)
+            .addOnSuccessListener {
+                db.collection("pending_providers").document(id).delete()
+                logActivity("المدير", "تمت الموافقة على مقدم الخدمة: ${updated.fullName}")
+                onComplete()
+            }
     }
 
     fun rejectProvider(id: String, reason: String, onComplete: () -> Unit = {}) {
-        val candidate = pendingProviders.value.find { it.id == id }
-        if (_isInitialized.value) {
-            db.collection("pending_providers").document(id).delete()
-                .addOnSuccessListener {
-                    logActivity("المدير", "تم رفض ومسح الطلب $id لسبب: $reason")
-                    onComplete()
-                }
-        } else {
-            val pendingList = pendingProviders.value.toMutableList().apply { removeIf { it.id == id } }
-            pendingProviders.value = pendingList
-            onComplete()
-        }
+        db.collection("pending_providers").document(id).delete()
+            .addOnSuccessListener {
+                logActivity("المدير", "تم رفض ومسح الطلب $id لسبب: $reason")
+                onComplete()
+            }
     }
 
     fun deleteProvider(id: String, onComplete: () -> Unit = {}) {
-        if (_isInitialized.value) {
-            db.collection("service_providers").document(id).delete().addOnSuccessListener { onComplete() }
-        } else {
-            val activeList = providers.value.toMutableList().apply { removeIf { it.id == id } }
-            providers.value = activeList
-            onComplete()
-        }
+        db.collection("service_providers").document(id).delete().addOnSuccessListener { onComplete() }
     }
 
     fun addManualProvider(p: ServiceProvider, onComplete: () -> Unit) {
@@ -459,104 +633,93 @@ object FirebaseManager {
             "isBlocked" to false
         )
 
-        if (_isInitialized.value) {
-            db.collection("service_providers").document(id).set(dataMap)
-                .addOnSuccessListener {
-                    logActivity("المدير/المشرف", "إضافة مقدم خدمة يدوياً: ${p.fullName}")
-                    onComplete()
-                }
-        } else {
-            val activeList = providers.value.toMutableList().apply { add(p.copy(id = id, imageUrl = pImage)) }
-            providers.value = activeList
-            onComplete()
-        }
+        db.collection("service_providers").document(id).set(dataMap)
+            .addOnSuccessListener {
+                logActivity("المدير/المشرف", "إضافة مقدم خدمة يدوياً: ${p.fullName}")
+                onComplete()
+            }
+    }
+
+    // Direct Firestore update of any details (edit provider)
+    fun updateProviderDetails(p: ServiceProvider, onComplete: () -> Unit = {}) {
+        val dataMap = mapOf(
+            "fullName" to p.fullName,
+            "phone" to p.phone,
+            "whatsapp" to p.whatsapp,
+            "categoryId" to p.categoryId,
+            "subCategory" to p.subCategory,
+            "address" to p.address,
+            "area" to p.area,
+            "imageUrl" to p.imageUrl,
+            "idCardUrl" to p.idCardUrl,
+            "gpsLat" to p.gpsLat,
+            "gpsLng" to p.gpsLng,
+            "isVerified" to p.isVerified,
+            "isPinned" to p.isPinned,
+            "isRecommended" to p.isRecommended,
+            "hasPremiumSubscription" to p.hasPremiumSubscription,
+            "loyaltyPoints" to p.loyaltyPoints,
+            "ratingSum" to p.ratingSum,
+            "ratingCount" to p.ratingCount,
+            "isBlocked" to p.isBlocked
+        )
+        db.collection("service_providers").document(p.id).set(dataMap)
+            .addOnSuccessListener {
+                logActivity("المدير/المشرف", "تعديل بيانات مقدم الخدمة: ${p.fullName}")
+                onComplete()
+            }
+            .addOnFailureListener {
+                onComplete()
+            }
     }
 
     fun updateProviderStatus(id: String, isVerified: Boolean, isPinned: Boolean, isRecom: Boolean, isPremium: Boolean, onComplete: () -> Unit = {}) {
-        if (_isInitialized.value) {
-            val updates = mapOf(
-                "isVerified" to isVerified,
-                "isPinned" to isPinned,
-                "isRecommended" to isRecom,
-                "hasPremiumSubscription" to isPremium
-            )
-            db.collection("service_providers").document(id).update(updates).addOnSuccessListener { onComplete() }
-        } else {
-            val updatedList = providers.value.map {
-                if (it.id == id) it.copy(isVerified = isVerified, isPinned = isPinned, isRecommended = isRecom, hasPremiumSubscription = isPremium) else it
-            }
-            providers.value = updatedList
-            onComplete()
-        }
+        val updates = mapOf(
+            "isVerified" to isVerified,
+            "isPinned" to isPinned,
+            "isRecommended" to isRecom,
+            "hasPremiumSubscription" to isPremium
+        )
+        db.collection("service_providers").document(id).update(updates).addOnSuccessListener { onComplete() }
     }
 
     // Category controls
     fun manageCategory(id: String, nameAr: String, nameEn: String, iconEmoji: String, isDelete: Boolean = false, onComplete: () -> Unit = {}) {
-        if (_isInitialized.value) {
-            val docRef = db.collection("categories").document(id)
-            if (isDelete) {
-                docRef.delete().addOnSuccessListener { onComplete() }
-            } else {
-                val data = mapOf("nameAr" to nameAr, "nameEn" to nameEn, "iconEmoji" to iconEmoji)
-                docRef.set(data).addOnSuccessListener { onComplete() }
-            }
+        val docRef = db.collection("categories").document(id)
+        if (isDelete) {
+            docRef.delete().addOnSuccessListener { onComplete() }
         } else {
-            val mutable = categories.value.toMutableList()
-            if (isDelete) {
-                mutable.removeIf { it.id == id }
-            } else {
-                mutable.removeIf { it.id == id }
-                mutable.add(ServiceCategory(id, nameAr, nameEn, iconEmoji))
-            }
-            categories.value = mutable
-            onComplete()
+            val data = mapOf("nameAr" to nameAr, "nameEn" to nameEn, "iconEmoji" to iconEmoji)
+            docRef.set(data).addOnSuccessListener { onComplete() }
         }
     }
 
     // Banners controls
     fun manageBanner(b: BannerAd, isDelete: Boolean = false, onComplete: () -> Unit = {}) {
         val id = if (b.id.isEmpty()) UUID.randomUUID().toString() else b.id
-        if (_isInitialized.value) {
-            val docRef = db.collection("banners").document(id)
-            if (isDelete) {
-                docRef.delete().addOnSuccessListener { onComplete() }
-            } else {
-                val data = mapOf(
-                    "title" to b.title,
-                    "imageUrl" to b.imageUrl.ifEmpty { "https://picsum.photos/600/300?v=${UUID.randomUUID()}" },
-                    "linkUrl" to b.linkUrl,
-                    "displaySize" to b.displaySize,
-                    "durationSeconds" to b.durationSeconds,
-                    "isActive" to b.isActive
-                )
-                docRef.set(data).addOnSuccessListener { onComplete() }
-            }
+        val docRef = db.collection("banners").document(id)
+        if (isDelete) {
+            docRef.delete().addOnSuccessListener { onComplete() }
         } else {
-            val mutable = banners.value.toMutableList()
-            mutable.removeIf { it.id == id }
-            if (!isDelete) {
-                mutable.add(b.copy(id = id, imageUrl = b.imageUrl.ifEmpty { "https://picsum.photos/600/300" }))
-            }
-            banners.value = mutable
-            onComplete()
+            val data = mapOf(
+                "title" to b.title,
+                "imageUrl" to b.imageUrl.ifEmpty { "https://picsum.photos/600/300?v=${UUID.randomUUID()}" },
+                "linkUrl" to b.linkUrl,
+                "displaySize" to b.displaySize,
+                "durationSeconds" to b.durationSeconds,
+                "isActive" to b.isActive
+            )
+            docRef.set(data).addOnSuccessListener { onComplete() }
         }
     }
 
     // Block logic
     fun blockProvider(id: String, isBlock: Boolean, onComplete: () -> Unit = {}) {
-        if (_isInitialized.value) {
-            db.collection("service_providers").document(id).update("isBlocked", isBlock)
-                .addOnSuccessListener {
-                    logActivity("المدير", "تم تغيير حالة الحظر لمقدم الخدمة $id إلى $isBlock")
-                    onComplete()
-                }
-        } else {
-            val updated = providers.value.map {
-                if (it.id == id) it.copy(isBlocked = isBlock) else it
+        db.collection("service_providers").document(id).update("isBlocked", isBlock)
+            .addOnSuccessListener {
+                logActivity("المدير", "تم تغيير حالة الحظر لمقدم الخدمة $id إلى $isBlock")
+                onComplete()
             }
-            providers.value = updated.filter { !it.isBlocked }
-            onComplete()
-        }
     }
 
     // Post Review with 15 Loyalty points reward
@@ -570,40 +733,26 @@ object FirebaseManager {
             "timestamp" to r.timestamp
         )
 
-        if (_isInitialized.value) {
-            db.collection("reviews").document(id).set(docData)
-                .addOnSuccessListener {
-                    // Fetch existing ratings and increment points
-                    db.collection("service_providers").document(r.providerId).get()
-                        .addOnSuccessListener { doc ->
-                            if (doc.exists()) {
-                                val currentSum = doc.getDouble("ratingSum")?.toFloat() ?: 0.0f
-                                val currentCount = doc.getLong("ratingCount")?.toInt() ?: 0
-                                val loyaltyPoints = doc.getLong("loyaltyPoints")?.toInt() ?: 0
-                                
-                                val updates = mapOf(
-                                    "ratingSum" to (currentSum + r.rating),
-                                    "ratingCount" to (currentCount + 1),
-                                    "loyaltyPoints" to (loyaltyPoints + 15) // +15 loyalty points on review
-                                )
-                                db.collection("service_providers").document(r.providerId).update(updates)
-                            }
-                            onComplete()
+        db.collection("reviews").document(id).set(docData)
+            .addOnSuccessListener {
+                // Fetch existing ratings and increment points
+                db.collection("service_providers").document(r.providerId).get()
+                    .addOnSuccessListener { doc ->
+                        if (doc.exists()) {
+                            val currentSum = doc.getDouble("ratingSum")?.toFloat() ?: 0.0f
+                            val currentCount = doc.getLong("ratingCount")?.toInt() ?: 0
+                            val loyaltyPoints = doc.getLong("loyaltyPoints")?.toInt() ?: 0
+                            
+                            val updates = mapOf(
+                                "ratingSum" to (currentSum + r.rating),
+                                "ratingCount" to (currentCount + 1),
+                                "loyaltyPoints" to (loyaltyPoints + 15) // +15 loyalty points on review
+                            )
+                            db.collection("service_providers").document(r.providerId).update(updates)
                         }
-                }
-        } else {
-            val updated = providers.value.map { p ->
-                if (p.id == r.providerId) {
-                    p.copy(
-                        ratingSum = p.ratingSum + r.rating,
-                        ratingCount = p.ratingCount + 1,
-                        loyaltyPoints = p.loyaltyPoints + 15
-                    )
-                } else p
+                        onComplete()
+                    }
             }
-            providers.value = updated
-            onComplete()
-        }
     }
 
     // Submit Report
@@ -617,14 +766,7 @@ object FirebaseManager {
             "timestamp" to rep.timestamp
         )
 
-        if (_isInitialized.value) {
-            db.collection("incident_reports").document(id).set(docData).addOnSuccessListener { onComplete() }
-        } else {
-            val m = incidentReports.value.toMutableList()
-            m.add(rep.copy(id = id))
-            incidentReports.value = m
-            onComplete()
-        }
+        db.collection("incident_reports").document(id).set(docData).addOnSuccessListener { onComplete() }
     }
 
     // Post live chat sync message
@@ -638,50 +780,28 @@ object FirebaseManager {
             "timestamp" to msg.timestamp
         )
 
-        if (_isInitialized.value) {
-            db.collection("chats").document(id).set(docData).addOnSuccessListener { onComplete() }
-        } else {
-            val list = chats.value.toMutableList()
-            list.add(msg.copy(id = id))
-            chats.value = list
-            onComplete()
-        }
+        db.collection("chats").document(id).set(docData).addOnSuccessListener { onComplete() }
     }
 
     fun wipeChatLogs(onComplete: () -> Unit = {}) {
-        if (_isInitialized.value) {
-            db.collection("chats").get().addOnSuccessListener { snapshots ->
-                val batch = db.batch()
-                snapshots.forEach { batch.delete(it.reference) }
-                batch.commit().addOnSuccessListener {
-                    logActivity("المدير", "تم مسح سجلات المحادثة بالكامل.")
-                    onComplete()
-                }
+        db.collection("chats").get().addOnSuccessListener { snapshots ->
+            val batch = db.batch()
+            snapshots.forEach { batch.delete(it.reference) }
+            batch.commit().addOnSuccessListener {
+                logActivity("المدير", "تم مسح سجلات المحادثة بالكامل.")
+                onComplete()
             }
-        } else {
-            chats.value = emptyList()
-            onComplete()
         }
     }
 
     // Supervisors management
     fun manageSupervisor(m: Moderator, isDelete: Boolean = false, onComplete: () -> Unit = {}) {
         val id = if (m.id.isEmpty()) UUID.randomUUID().toString() else m.id
-        if (_isInitialized.value) {
-            val docRef = db.collection("moderators").document(id)
-            if (isDelete) {
-                docRef.delete().addOnSuccessListener { onComplete() }
-            } else {
-                docRef.set(mapOf("username" to m.username, "password" to m.password)).addOnSuccessListener { onComplete() }
-            }
+        val docRef = db.collection("moderators").document(id)
+        if (isDelete) {
+            docRef.delete().addOnSuccessListener { onComplete() }
         } else {
-            val valList = moderators.value.toMutableList()
-            valList.removeIf { it.id == id }
-            if (!isDelete) {
-                valList.add(m.copy(id = id))
-            }
-            moderators.value = valList
-            onComplete()
+            docRef.set(mapOf("username" to m.username, "password" to m.password)).addOnSuccessListener { onComplete() }
         }
     }
 
@@ -694,10 +814,6 @@ object FirebaseManager {
         )
         if (_isInitialized.value) {
             db.collection("activity_logs").document(id).set(data)
-        } else {
-            val list = activityLogs.value.toMutableList()
-            list.add(0, ActivityLog(id, user, action))
-            activityLogs.value = list
         }
     }
 
@@ -722,50 +838,5 @@ object FirebaseManager {
                 }
             }
         }
-    }
-
-    private fun seedFallbackMockData() {
-        categories.value = listOf(
-            ServiceCategory("cat_1", "صيانة وأعمال مهنية", "Maintenance & Professional", "🛠️"),
-            ServiceCategory("cat_2", "خدمات طبية ورعاية", "Medical & Care Services", "🩺"),
-            ServiceCategory("cat_3", "نقل وتوصيل", "Transportation & Delivery", "🚚"),
-            ServiceCategory("cat_4", "تعليم وتدريب", "Education & Training", "📚"),
-            ServiceCategory("cat_5", "مطاعم ومأكولات", "Restaurants & Food", "🍛"),
-            ServiceCategory("cat_6", "خدمات قانونية وعقارية", "Legal & Real Estate", "⚖️"),
-            ServiceCategory("cat_7", "صيانة حاسوب وهواتف", "Tech & Mobile Fix", "📱"),
-            ServiceCategory("cat_8", "حرف يدوية وتطريز", "Handicrafts & Embroidery", "🧵")
-        )
-
-        providers.value = listOf(
-            ServiceProvider(
-                "p_1", "ماهر الخولاني", "777644670", "777644670", "cat_1", "سباكة وكهرباء منازل",
-                "الدائري الغربي - بجانب جولة الرويشان", "صنعاء", "https://picsum.photos/seed/maher/200", "",
-                15.3694, 44.1910, isVerified = true, isPinned = true, isRecommended = true, hasPremiumSubscription = true,
-                loyaltyPoints = 1200, ratingSum = 25.0f, ratingCount = 5
-            ),
-            ServiceProvider(
-                "p_2", "د. أحمد اليماني", "736462000", "736462000", "cat_2", "طبيب عام واستشاري أطفال",
-                "شارع حدة - برج الأمل الطبي", "صنعاء", "https://picsum.photos/seed/doctor/200", "",
-                15.3501, 44.2012, isVerified = true, isPinned = false, isRecommended = true, hasPremiumSubscription = false,
-                loyaltyPoints = 850, ratingSum = 48.0f, ratingCount = 10
-            ),
-            ServiceProvider(
-                "p_3", "م. وليد المحيا", "711000222", "711000222", "cat_7", "تصميم مواقع وتطبيقات أندرويد",
-                "شارع صخر - عمارة التقنية", "صنعاء", "https://picsum.photos/seed/engineer/200", "",
-                15.3400, 44.1800, isVerified = true, isPinned = true, isRecommended = true, hasPremiumSubscription = true,
-                loyaltyPoints = 150, ratingSum = 15.0f, ratingCount = 3
-            ),
-            ServiceProvider(
-                "p_4", "الماهر للنقل والخدمات السريعة", "775556667", "775556667", "cat_3", "نقل أثاث وشحن بضائع لجميع المحافظات",
-                "جولة عمران - شارع المطار", "صنعاء", "https://picsum.photos/seed/truck/200", "",
-                15.4200, 44.2200, isVerified = true, isPinned = false, isRecommended = false, hasPremiumSubscription = false,
-                loyaltyPoints = 300, ratingSum = 9.0f, ratingCount = 2
-            )
-        )
-
-        banners.value = listOf(
-            BannerAd("b_1", "أكبر دليل خدمي في اليمن يدعم العمل بدون انترنت!", "https://picsum.photos/seed/ad1/600/300", "", "L", 5, true),
-            BannerAd("b_2", "المساعد الذكي يجيب على جميع أسئلتك اللحظية مجاناً", "https://picsum.photos/seed/ad2/600/300", "", "M", 6, true)
-        )
     }
 }

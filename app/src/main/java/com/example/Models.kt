@@ -21,7 +21,14 @@ data class AppConfig(
     val maintenanceMode: Boolean = false,
     val dataSavingMode: Boolean = false,
     val subscriptionsEnabled: Boolean = true,
-    val fcmNotificationsEnabled: Boolean = true
+    val fcmNotificationsEnabled: Boolean = true,
+    val radiusSearchOptions: String = "5,10,20,50",
+    val selectedRadiusIndex: Int = 1,
+    val voiceSearchEnabled: Boolean = true,
+    val chatIconSize: Int = 54,
+    val chatIconColorHex: String = "#FF107C41",
+    val chatIconVisible: Boolean = true,
+    val chatIconDeleted: Boolean = false
 ) {
     fun toMap(): Map<String, Any> {
         return mapOf(
@@ -37,7 +44,14 @@ data class AppConfig(
             "maintenanceMode" to maintenanceMode,
             "dataSavingMode" to dataSavingMode,
             "subscriptionsEnabled" to subscriptionsEnabled,
-            "fcmNotificationsEnabled" to fcmNotificationsEnabled
+            "fcmNotificationsEnabled" to fcmNotificationsEnabled,
+            "radiusSearchOptions" to radiusSearchOptions,
+            "selectedRadiusIndex" to selectedRadiusIndex,
+            "voiceSearchEnabled" to voiceSearchEnabled,
+            "chatIconSize" to chatIconSize,
+            "chatIconColorHex" to chatIconColorHex,
+            "chatIconVisible" to chatIconVisible,
+            "chatIconDeleted" to chatIconDeleted
         )
     }
 
@@ -60,7 +74,14 @@ data class AppConfig(
                 maintenanceMode = map["maintenanceMode"] as? Boolean ?: false,
                 dataSavingMode = map["dataSavingMode"] as? Boolean ?: false,
                 subscriptionsEnabled = map["subscriptionsEnabled"] as? Boolean ?: true,
-                fcmNotificationsEnabled = map["fcmNotificationsEnabled"] as? Boolean ?: true
+                fcmNotificationsEnabled = map["fcmNotificationsEnabled"] as? Boolean ?: true,
+                radiusSearchOptions = map["radiusSearchOptions"] as? String ?: "5,10,20,50",
+                selectedRadiusIndex = (map["selectedRadiusIndex"] as? Long)?.toInt() ?: 1,
+                voiceSearchEnabled = map["voiceSearchEnabled"] as? Boolean ?: true,
+                chatIconSize = (map["chatIconSize"] as? Long)?.toInt() ?: 54,
+                chatIconColorHex = map["chatIconColorHex"] as? String ?: "#FF107C41",
+                chatIconVisible = map["chatIconVisible"] as? Boolean ?: true,
+                chatIconDeleted = map["chatIconDeleted"] as? Boolean ?: false
             )
         }
     }

@@ -382,20 +382,26 @@ class MainActivity : ComponentActivity() {
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                                 modifier = Modifier.padding(bottom = 12.dp)
                             ) {
-                                // 1. Real-time Support Chat Bubble (50% scale representation)
-                                FloatingActionButton(
-                                    onClick = { displayDirectChatRoom = true },
-                                    containerColor = MaterialTheme.colorScheme.secondary,
-                                    modifier = Modifier
-                                        .size(46.dp)
-                                        .testTag("support_chat_bubble")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Send,
-                                        contentDescription = "Chat Logs",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(18.dp)
-                                    )
+                                // 1. Real-time Support Chat Bubble (dynamic configuration bound layout)
+                                if (config.chatIconVisible && !config.chatIconDeleted) {
+                                    FloatingActionButton(
+                                        onClick = { displayDirectChatRoom = true },
+                                        containerColor = try {
+                                            Color(android.graphics.Color.parseColor(config.chatIconColorHex))
+                                        } catch (e: Exception) {
+                                            MaterialTheme.colorScheme.secondary
+                                        },
+                                        modifier = Modifier
+                                            .size((if (config.chatIconSize in 30..150) config.chatIconSize else 46).dp)
+                                            .testTag("support_chat_bubble")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Send,
+                                            contentDescription = "Chat Logs",
+                                            tint = Color.White,
+                                            modifier = Modifier.size((if (config.chatIconSize in 30..150) (config.chatIconSize / 2.55f) else 18.0f).dp)
+                                        )
+                                    }
                                 }
 
                                 // 2. Smart AI Assistant Bubble (🤖)
@@ -1731,6 +1737,17 @@ fun DirectChatWidget(
     var chatMessageInput by remember { mutableStateOf("") }
     val listState = rememberScrollState()
 
+    // Enforce active single-listener configuration on enter/exit
+    LaunchedEffect(Unit) {
+        FirebaseManager.startListeningToChats()
+    }
+    DisposableEffect(Unit) {
+        onDispose {
+            FirebaseManager.activeChatListenerRegistration?.remove()
+            FirebaseManager.activeChatListenerRegistration = null
+        }
+    }
+
     Dialog(onDismissRequest = onDismiss) {
         Card(
             modifier = Modifier
@@ -1813,6 +1830,9 @@ fun DirectChatWidget(
                     Button(
                         onClick = {
                             if (chatMessageInput.isEmpty()) return@Button
+                            FirebaseManager.activeChatListenerRegistration?.remove()
+                            FirebaseManager.activeChatListenerRegistration = null
+
                             val msg = ChatMessage(
                                 senderId = if (isAdmin) "Admin" else "Guest",
                                 senderName = if (isAdmin) "المشرف العام" else "مواطن مستفيد",
@@ -1820,6 +1840,7 @@ fun DirectChatWidget(
                             )
                             FirebaseManager.sendChatMessage(msg) {
                                 chatMessageInput = ""
+                                FirebaseManager.startListeningToChats()
                             }
                         },
                         shape = RoundedCornerShape(10.dp)
@@ -1896,6 +1917,14 @@ fun BackdoorSettingsDrawer(
     var selectedThemeType by remember { mutableStateOf(config.themeType) }
     var welcomeMsgValue by remember { mutableStateOf(config.welcomeMessage) }
     var customAdminPassValue by remember { mutableStateOf(config.mainAdminPass) }
+
+    // Chat and Search Settings States
+    var chatIconVisibleValue by remember { mutableStateOf(config.chatIconVisible) }
+    var chatIconDeletedValue by remember { mutableStateOf(config.chatIconDeleted) }
+    var chatIconColorHexValue by remember { mutableStateOf(config.chatIconColorHex) }
+    var chatIconSizeValue by remember { mutableStateOf(config.chatIconSize) }
+    var radiusOptionsValue by remember { mutableStateOf(config.radiusSearchOptions) }
+    var voiceSearchValue by remember { mutableStateOf(config.voiceSearchEnabled) }
 
     // Supervisors creation states
     var newSupervisorName by remember { mutableStateOf("") }
@@ -1988,6 +2017,91 @@ fun BackdoorSettingsDrawer(
                     }
                 }
 
+                Divider()
+
+                Text(text = "🛠️ تبويب إعدادات الدردشة والبحث والمنطقة", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
+
+                // 1. Chat settings visibility & deletion
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text(text = "أيقونة الدردشة مرئية في الواجهة", fontSize = 11.sp, color = Color.White)
+                    Switch(
+                        checked = chatIconVisibleValue,
+                        onCheckedChange = { chatIconVisibleValue = it }
+                    )
+                }
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text(text = "حذف أيقونة الدردشة نهائياً من التطبيق", fontSize = 11.sp, color = Color.Red)
+                    Switch(
+                        checked = chatIconDeletedValue,
+                        onCheckedChange = { chatIconDeletedValue = it }
+                    )
+                }
+
+                // 2. Chat icon color hex input & presets
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(text = "لون أيقونة الدردشة (مثال: #FF107C41)", fontSize = 11.sp, color = Color.White)
+                    TextField(
+                        value = chatIconColorHexValue,
+                        onValueChange = { chatIconColorHexValue = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    
+                    // Preset colors row
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(
+                            "#FF107C41" to "🟢 أخضر",
+                            "#FF0288D1" to "🔵 أزرق",
+                            "#FFE53935" to "🔴 أحمر",
+                            "#FFFBC02D" to "🟡 ذهبي",
+                            "#FF008080" to "🟢 تيل"
+                        ).forEach { (hex, name) ->
+                            Box(
+                                modifier = Modifier
+                                    .background(Color(android.graphics.Color.parseColor(hex)), RoundedCornerShape(4.dp))
+                                    .clickable { chatIconColorHexValue = hex }
+                                    .padding(horizontal = 6.dp, vertical = 4.dp)
+                            ) {
+                                Text(text = name, fontSize = 9.sp, color = Color.White)
+                            }
+                        }
+                    }
+                }
+
+                // 3. Chat icon size
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(text = "حجم أيقونة الدردشة (بكسل: 30 - 150): $chatIconSizeValue dp", fontSize = 11.sp, color = Color.White)
+                    Slider(
+                        value = chatIconSizeValue.toFloat(),
+                        onValueChange = { chatIconSizeValue = it.toInt() },
+                        valueRange = 30f..150f,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                // 4. Map Radius options & current selections
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(text = "خيارات نطاق البحث بالخريطة (مفصولة بفاصلة)", fontSize = 11.sp, color = Color.White)
+                    TextField(
+                        value = radiusOptionsValue,
+                        onValueChange = { radiusOptionsValue = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                }
+
+                // 5. Voice search enabled toggle
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text(text = "تفعيل البحث الصوتي الذكي 🎙️", fontSize = 11.sp, color = Color.White)
+                    Switch(
+                        checked = voiceSearchValue,
+                        onCheckedChange = { voiceSearchValue = it }
+                    )
+                }
+
+                Divider()
+
                 Button(
                     onClick = {
                         val capCong = config.copy(
@@ -1996,16 +2110,22 @@ fun BackdoorSettingsDrawer(
                             supportPhone = supportPhoneValue,
                             themeType = selectedThemeType,
                             welcomeMessage = welcomeMsgValue,
-                            mainAdminPass = customAdminPassValue
+                            mainAdminPass = customAdminPassValue,
+                            chatIconVisible = chatIconVisibleValue,
+                            chatIconDeleted = chatIconDeletedValue,
+                            chatIconColorHex = chatIconColorHexValue,
+                            chatIconSize = chatIconSizeValue,
+                            radiusSearchOptions = radiusOptionsValue,
+                            voiceSearchEnabled = voiceSearchValue
                         )
                         FirebaseManager.saveAppConfig(capCong)
-                        FirebaseManager.logActivity("المالك", "تم تغيير هوية التطبيق الأساسية ومظهر الدليل الفني.")
+                        FirebaseManager.logActivity("المالك", "تم تغيير هوية التطبيق اللحظية وتحديث إعدادات الدردشة والبحث.")
                         Toast.makeText(context, "تم حفظ وتطبيق وتعميم البيانات الهوياتية بنجاح بنظام المزامنة اللحظية!", Toast.LENGTH_LONG).show()
                         onDismiss()
                     },
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(text = "حفظ وتثبيت إعدادات الهوية", fontWeight = FontWeight.Bold)
+                    Text(text = "حفظ وتثبيت إعدادات الهوية والدردشة", fontWeight = FontWeight.Bold)
                 }
 
                 Divider(modifier = Modifier.padding(vertical = 6.dp))
@@ -2088,6 +2208,7 @@ fun AdminDashboardScreen(
     onLogout: () -> Unit
 ) {
     var selectedDashboardTab by remember { mutableStateOf("PENDING") } // PENDING, LIST, ADD, METRICS, CATEGORIES, BANNERS, INCIDENTS, LOGS
+    var editingProvider by remember { mutableStateOf<ServiceProvider?>(null) }
 
     // Manual provider build state
     var mName by remember { mutableStateOf("") }
@@ -2110,6 +2231,7 @@ fun AdminDashboardScreen(
     var newBannerDisplaySize by remember { mutableStateOf("M") } // S, M, L
 
     val scrollState = rememberScrollState()
+    val chatsList by FirebaseManager.chats.collectAsState()
 
     Column(
         modifier = Modifier
@@ -2137,6 +2259,7 @@ fun AdminDashboardScreen(
                 "PENDING" to "الطلبات المعلقة ⏳",
                 "LIST" to "إقرارات المهنيين 👥",
                 "ADD" to "إضافة يدوية ✍️",
+                "CHAT_MGMT" to "إدارة الدردشات 💬",
                 "METRICS" to "مؤشرات الدعم 📊",
                 "CATEGORIES" to "الأقسام 🛠️",
                 "BANNERS" to "الإعلانات Banners 📢",
@@ -2214,10 +2337,10 @@ fun AdminDashboardScreen(
             "LIST" -> {
                 Text(text = "👥 تعديل إشعارات وشارات وتوصيات المهنيين:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
                 providers.forEach { p ->
-                    var isVerif by remember { mutableStateOf(p.isVerified) }
-                    var isPin by remember { mutableStateOf(p.isPinned) }
-                    var isRecom by remember { mutableStateOf(p.isRecommended) }
-                    var isPrem by remember { mutableStateOf(p.hasPremiumSubscription) }
+                    var isVerif by remember(p.isVerified) { mutableStateOf(p.isVerified) }
+                    var isPin by remember(p.isPinned) { mutableStateOf(p.isPinned) }
+                    var isRecom by remember(p.isRecommended) { mutableStateOf(p.isRecommended) }
+                    var isPrem by remember(p.hasPremiumSubscription) { mutableStateOf(p.hasPremiumSubscription) }
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
@@ -2257,15 +2380,28 @@ fun AdminDashboardScreen(
                                 }
                             }
 
-                            Button(
-                                onClick = {
-                                    FirebaseManager.updateProviderStatus(p.id, isVerif, isPin, isRecom, isPrem) {
-                                        Toast.makeText(context, "تم تحديث الشارات والموثوقية!", Toast.LENGTH_SHORT).show()
-                                    }
-                                },
-                                modifier = Modifier.align(Alignment.End)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(text = "تعديل الشارات", fontSize = 10.sp)
+                                Button(
+                                    onClick = { editingProvider = p },
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                                    modifier = Modifier.padding(end = 8.dp)
+                                ) {
+                                    Text(text = "تعديل البيانات ✏️", fontSize = 10.sp)
+                                }
+
+                                Button(
+                                    onClick = {
+                                        FirebaseManager.updateProviderStatus(p.id, isVerif, isPin, isRecom, isPrem) {
+                                            Toast.makeText(context, "تم تحديث الشارات والموثوقية!", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                ) {
+                                    Text(text = "تعديل الشارات", fontSize = 10.sp)
+                                }
                             }
                         }
                     }
@@ -2429,6 +2565,124 @@ fun AdminDashboardScreen(
                 }
             }
 
+            "CHAT_MGMT" -> {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "💬 إدارة محادثات الدعم والمساندة المباشرة:",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Button(
+                            onClick = {
+                                FirebaseManager.wipeChatLogs {
+                                    Toast.makeText(context, "تم مسح جميع سجلات المحادثة بنجاح!", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text(text = "🧹 مسح كل المحادثات", fontSize = 10.sp)
+                        }
+                    }
+
+                    // Super Admin fast reply input
+                    var adminReplyInput by remember { mutableStateOf("") }
+                    val adminChatScrollState = rememberScrollState()
+
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(280.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp).fillMaxSize()) {
+                            // Chat Logs List
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth()
+                                    .verticalScroll(adminChatScrollState),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                val currentChats = chatsList
+                                if (currentChats.isEmpty()) {
+                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        Text(text = "لا توجد رسائل مسجلة حالياً.", fontSize = 10.sp, color = Color.Gray)
+                                    }
+                                } else {
+                                    currentChats.forEach { msg ->
+                                        val isAdm = msg.senderId == "Admin"
+                                        Column(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalAlignment = if (isAdm) Alignment.End else Alignment.Start
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                Text(text = msg.senderName, fontSize = 8.sp, fontWeight = FontWeight.Bold, color = if (isAdm) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary)
+                                                val sdf = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault())
+                                                Text(text = sdf.format(java.util.Date(msg.timestamp)), fontSize = 7.sp, color = Color.Gray)
+                                            }
+                                            Card(
+                                                colors = CardDefaults.cardColors(
+                                                    containerColor = if (isAdm) MaterialTheme.colorScheme.secondary.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surface
+                                                ),
+                                                shape = RoundedCornerShape(6.dp)
+                                            ) {
+                                                Text(text = msg.content, fontSize = 11.sp, color = Color.White, modifier = Modifier.padding(6.dp))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Divider(modifier = Modifier.padding(vertical = 4.dp))
+
+                            // Input block
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                TextField(
+                                    value = adminReplyInput,
+                                    onValueChange = { adminReplyInput = it },
+                                    modifier = Modifier.weight(1f),
+                                    placeholder = { Text("رد الأدمن الفائق (Super Admin Reply)...") },
+                                    colors = TextFieldDefaults.colors(
+                                        focusedContainerColor = MaterialTheme.colorScheme.surface,
+                                        unfocusedContainerColor = MaterialTheme.colorScheme.surface
+                                    ),
+                                    singleLine = true
+                                )
+                                Button(
+                                    onClick = {
+                                        if (adminReplyInput.isEmpty()) return@Button
+                                        val adminMsg = ChatMessage(
+                                            senderId = "Admin",
+                                            senderName = "الأدمن الفائق (رد رسمي) 👑",
+                                            content = adminReplyInput,
+                                            timestamp = System.currentTimeMillis()
+                                        )
+                                        FirebaseManager.sendChatMessage(adminMsg) {
+                                            adminReplyInput = ""
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text("رد فائق", fontSize = 10.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             "LOGS" -> {
                 Text(text = "📝 سجل تتبع نشاطات المشرفين والأعضاء (Security Logs):", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
                 historyLogs.forEach { log ->
@@ -2442,5 +2696,133 @@ fun AdminDashboardScreen(
                 }
             }
         }
+    }
+
+    // 10. Edit Provider Dialog modal
+    editingProvider?.let { prov ->
+        var editName by remember { mutableStateOf(prov.fullName) }
+        var editPhone by remember { mutableStateOf(prov.phone) }
+        var editWhatsapp by remember { mutableStateOf(prov.whatsapp) }
+        var editSub by remember { mutableStateOf(prov.subCategory) }
+        var editAddress by remember { mutableStateOf(prov.address) }
+        var editArea by remember { mutableStateOf(prov.area) }
+        var editCategoryId by remember { mutableStateOf(prov.categoryId) }
+
+        AlertDialog(
+            onDismissRequest = { editingProvider = null },
+            title = {
+                Text(
+                    text = "✏️ تعديل بيانات المهني/الخدمة",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    TextField(
+                        value = editName,
+                        onValueChange = { editName = it },
+                        label = { Text("الاسم الكامل") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    TextField(
+                        value = editPhone,
+                        onValueChange = { editPhone = it },
+                        label = { Text("هاتف الاتصال") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    TextField(
+                        value = editWhatsapp,
+                        onValueChange = { editWhatsapp = it },
+                        label = { Text("رقم الواتساب") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    TextField(
+                        value = editSub,
+                        onValueChange = { editSub = it },
+                        label = { Text("التوصيف المهني أو الحرفة") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    TextField(
+                        value = editAddress,
+                        onValueChange = { editAddress = it },
+                        label = { Text("العنوان بالتفصيل") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    
+                    Text(text = "المحافظة والنطاق الجغرافي:", fontSize = 11.sp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf("صنعاء", "عدن", "تعز", "حضرموت", "إب").forEach { ar ->
+                            Box(
+                                modifier = Modifier
+                                    .background(
+                                        color = if (editArea == ar) MaterialTheme.colorScheme.primary else Color.DarkGray,
+                                        shape = RoundedCornerShape(8.dp)
+                                    )
+                                    .clickable { editArea = ar }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Text(text = ar, fontSize = 10.sp, color = Color.White)
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(text = "التصنيف والـ Category الرئيسي:", fontSize = 11.sp)
+                    categories.forEach { cat ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { editCategoryId = cat.id }
+                                .background(
+                                    color = if (editCategoryId == cat.id) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else Color.Transparent,
+                                    shape = RoundedCornerShape(4.dp)
+                                )
+                                .padding(vertical = 4.dp, horizontal = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = editCategoryId == cat.id,
+                                onClick = { editCategoryId = cat.id }
+                            )
+                            Text(text = "${cat.iconEmoji} ${cat.nameAr}", fontSize = 11.sp)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val updated = prov.copy(
+                            fullName = editName,
+                            phone = editPhone,
+                            whatsapp = editWhatsapp,
+                            subCategory = editSub,
+                            address = editAddress,
+                            area = editArea,
+                            categoryId = editCategoryId
+                        )
+                        FirebaseManager.updateProviderDetails(updated) {
+                            Toast.makeText(context, "تم حفظ وسحب التعديل مباشرة على فرستور!", Toast.LENGTH_SHORT).show()
+                            editingProvider = null
+                        }
+                    }
+                ) {
+                    Text("حفظ التغييرات ✅")
+                }
+            },
+            dismissButton = {
+                Button(
+                    onClick = { editingProvider = null },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Gray)
+                ) {
+                    Text("إلغاء")
+                }
+            }
+        )
     }
 }

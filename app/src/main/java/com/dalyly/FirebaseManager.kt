@@ -15,7 +15,7 @@ object FirebaseManager {
     val chats = MutableStateFlow<List<ChatMessage>>(emptyList())
     val supervisors = MutableStateFlow<List<Moderator>>(emptyList())
     val config = MutableStateFlow<AppConfig>(AppConfig())
-    val citiesList = MutableStateFlow<List<String>>(listOf("صنعاء", "عدن", "تعز", "إب", "حضرموت", "الحديدة", "ذمار"))
+    val citiesList = MutableStateFlow<List<String>>(emptyList())
 
     private var hasStarted = false
 
@@ -24,6 +24,23 @@ object FirebaseManager {
         hasStarted = true
 
         Log.d("FirebaseManager", "Starting live Firestore sync snapshot listeners...")
+
+        // Listen to Cities
+        db.collection("cities")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.e("FirebaseManager", "Error listening to cities", error)
+                    return@addSnapshotListener
+                }
+                if (snapshot != null) {
+                    val list = snapshot.documents.mapNotNull { it.getString("nameAr") }
+                    if (list.isEmpty()) {
+                        seedCities()
+                    } else {
+                        citiesList.value = list
+                    }
+                }
+            }
 
         // Listen to Config (Singleton)
         db.collection("config").document("current_config")
@@ -250,6 +267,22 @@ object FirebaseManager {
             .addOnSuccessListener { onComplete() }
     }
 
+    fun saveCity(cityAr: String, cityEn: String, onComplete: () -> Unit = {}) {
+        db.collection("cities").add(mapOf("nameAr" to cityAr, "nameEn" to cityEn))
+            .addOnSuccessListener { onComplete() }
+    }
+
+    fun deleteCity(cityName: String, onComplete: () -> Unit = {}) {
+        db.collection("cities").whereEqualTo("nameAr", cityName).get()
+            .addOnSuccessListener { snapshot ->
+                val batch = db.batch()
+                for (doc in snapshot.documents) {
+                    batch.delete(doc.reference)
+                }
+                batch.commit().addOnSuccessListener { onComplete() }
+            }
+    }
+
     // ================== DATA SEEDING ==================
 
     private fun seedCategories() {
@@ -291,5 +324,12 @@ object FirebaseManager {
     private fun seedSupervisors() {
         db.collection("supervisors").add(Moderator("", "admin", "admin2026"))
         db.collection("supervisors").add(Moderator("", "ali", "1234"))
+    }
+
+    private fun seedCities() {
+        val list = listOf("صنعاء", "عدن", "تعز", "إب", "حضرموت", "الحديدة", "ذمار")
+        for (city in list) {
+            db.collection("cities").add(mapOf("nameAr" to city, "nameEn" to city))
+        }
     }
 }

@@ -41,6 +41,13 @@ import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.isSystemInDarkTheme
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.util.Base64
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.launch
+import java.io.ByteArrayOutputStream
 import com.dalyly.R
 
 class MainActivity : ComponentActivity() {
@@ -192,6 +199,9 @@ fun MainAppScreen() {
     var regSubDetails by remember { mutableStateOf("") }
     var regAddress by remember { mutableStateOf("") }
     var regArea by remember { mutableStateOf("صنعاء") }
+    var regGender by remember { mutableStateOf("Male") }
+    var regPhotoUrl by remember { mutableStateOf("") }
+    var regSelfieUrl by remember { mutableStateOf("") }
 
     // Report complaints states
     var activeReportProviderId by remember { mutableStateOf<String?>(null) }
@@ -209,6 +219,41 @@ fun MainAppScreen() {
     LaunchedEffect(categories) {
         if (selectedCategoryTabId.isEmpty() && categories.isNotEmpty()) {
             selectedCategoryTabId = categories.first().id
+        }
+    }
+
+    // Setup Activity-Result Launchers with JPG 60% compression
+    val galleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let {
+            try {
+                val inputStream = context.contentResolver.openInputStream(it)
+                val bitmap = BitmapFactory.decodeStream(inputStream)
+                val outputStream = java.io.ByteArrayOutputStream()
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 60, outputStream)
+                val byteArray = outputStream.toByteArray()
+                regPhotoUrl = "data:image/jpeg;base64," + Base64.encodeToString(byteArray, Base64.DEFAULT)
+                Toast.makeText(context, "تم تحميل وضغط صورة الملف بنجاح (الجودة 60%)!", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(context, "فشل معالجة وضغط الصورة", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicturePreview()
+    ) { bitmap ->
+        bitmap?.let {
+            try {
+                val outputStream = java.io.ByteArrayOutputStream()
+                it.compress(Bitmap.CompressFormat.JPEG, 60, outputStream)
+                val byteArray = outputStream.toByteArray()
+                regSelfieUrl = "data:image/jpeg;base64," + Base64.encodeToString(byteArray, Base64.DEFAULT)
+                Toast.makeText(context, "تم التقاط وضغط الصورة الذاتية بنجاح!", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(context, "فشل معالجة الصورة الملتقطة", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -245,20 +290,10 @@ fun MainAppScreen() {
                         .padding(paddingValues)
                         .background(MaterialTheme.colorScheme.background)
                 ) {
-                    if (isOwnerMode) {
-                        OwnerDashboardView(
-                            context = context,
-                            config = configState,
-                            onClose = {
-                                isOwnerMode = false
-                                secretClickCount = 0
-                            }
-                        )
-                    } else if (loggedInSupervisor != null && isAdminMode) {
-                        // Admin Panel
+                    if (isOwnerMode || (loggedInSupervisor != null && isAdminMode)) {
                         AdminDashboardView(
                             context = context,
-                            loggedUser = loggedInSupervisor!!,
+                            loggedUser = if (isOwnerMode) "المالك السري (Owner)" else loggedInSupervisor!!,
                             config = configState,
                             categories = categories,
                             providers = providers,
@@ -268,8 +303,10 @@ fun MainAppScreen() {
                             chats = chats,
                             cities = cities,
                             onLogout = {
+                                isOwnerMode = false
                                 loggedInSupervisor = null
                                 isAdminMode = false
+                                secretClickCount = 0
                                 Toast.makeText(context, "تم تسجيل الخروج بنجاح", Toast.LENGTH_SHORT).show()
                             }
                         )
@@ -940,6 +977,81 @@ fun MainAppScreen() {
                                 }
                             }
 
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            // Gender selection
+                            Text("الجنس (المطابقة والخصوصية):", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    RadioButton(selected = regGender == "Male", onClick = { regGender = "Male" })
+                                    Text("ذكر 👤", fontSize = 11.sp)
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    RadioButton(selected = regGender == "Female", onClick = { regGender = "Female" })
+                                    Text("أنثى 👩‍🔧", fontSize = 11.sp)
+                                }
+                            }
+
+                            // Profile Photo / Gallery
+                            Text("أيقونة العمل / ترخيص المهنة / شعار (معرض الصور):", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Button(
+                                    onClick = { galleryLauncher.launch("image/*") },
+                                    modifier = Modifier.weight(1.3f),
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                                ) {
+                                    Text("تحميل من الجهاز 🖼️", fontSize = 11.sp)
+                                }
+                                if (regPhotoUrl.isNotEmpty()) {
+                                    Text("تم التحميل ✅", fontSize = 11.sp, color = Color.Green, fontWeight = FontWeight.Bold)
+                                } else {
+                                    Text("اختياري", fontSize = 11.sp, color = Color.LightGray)
+                                }
+                            }
+
+                            // Camera / Selfie Logic
+                            if (regGender == "Male") {
+                                Text("صورة شخصية سلفي Selfie (إلزامي لمطابقة بيانات الهوية للذكور):", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Button(
+                                        onClick = { cameraLauncher.launch() },
+                                        modifier = Modifier.weight(1.3f)
+                                    ) {
+                                        Text("افتح الكاميرا والتقط 🤳", fontSize = 11.sp, color = Color.Black)
+                                    }
+                                    if (regSelfieUrl.isNotEmpty()) {
+                                        Text("تم الالتقاط ✅", fontSize = 11.sp, color = Color.Green, fontWeight = FontWeight.Bold)
+                                    } else {
+                                        Text("مطلوب 🚨", fontSize = 11.sp, color = Color.Red, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            } else {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.15f))
+                                ) {
+                                    Text(
+                                        "🛡️ لحماية الخصوصية المطلقة، لا يُطلب من مقدمات الخدمة الإناث التقاط صورة ذاتية Selfie. يمكنك الاكتفاء برفع أيقونة التخصص أو أي صورة رمزية.",
+                                        fontSize = 10.sp,
+                                        modifier = Modifier.padding(10.dp),
+                                        color = Color.LightGray
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -956,6 +1068,10 @@ fun MainAppScreen() {
                                             Toast.makeText(context, "الرجاء اكمال الحقول الرئيسية", Toast.LENGTH_SHORT).show()
                                             return@Button
                                         }
+                                        if (regGender == "Male" && regSelfieUrl.isEmpty()) {
+                                            Toast.makeText(context, "الصورة الذاتية Selfie مطلوبة لمطابقة حسابك الأمني كذكر!", Toast.LENGTH_LONG).show()
+                                             return@Button
+                                        }
                                         val approvedImmediately = categories.find { it.id == regCategory }?.publishImmediately ?: true
                                         val newProv = ServiceProvider(
                                             name = regName,
@@ -966,7 +1082,10 @@ fun MainAppScreen() {
                                             address = regAddress,
                                             area = regArea,
                                             isPending = !approvedImmediately, // Pending if publishImmediately is false
-                                            active = approvedImmediately
+                                            active = approvedImmediately,
+                                            photoUrl = regPhotoUrl,
+                                            selfieUrl = regSelfieUrl,
+                                            gender = regGender
                                         )
                                         FirebaseManager.saveProvider(newProv) {
                                             Toast.makeText(
@@ -1477,7 +1596,7 @@ fun FloatingActionChatWidget(
 
 // ======================== SECURITY SUPERVISOR PANEL ========================
 @Composable
-fun AdminDashboardView(
+fun AdminDashboardViewOld(
     context: Context,
     loggedUser: String,
     config: AppConfig,
@@ -2088,7 +2207,7 @@ fun AdminDashboardView(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun OwnerDashboardView(
+fun OwnerDashboardViewOld(
     context: Context,
     config: AppConfig,
     onClose: () -> Unit

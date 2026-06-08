@@ -9,7 +9,9 @@ data class ServiceCategory(
     val nameEn: String = "",
     val emoji: String = "⚙️",
     val publishImmediately: Boolean = true,
-    val displayOrder: Int = 0
+    val displayOrder: Int = 0,
+    val description: String = "",
+    val isPinned: Boolean = false
 )
 
 data class ServiceProvider(
@@ -26,7 +28,12 @@ data class ServiceProvider(
     val isPending: Boolean = false,
     val rejectReason: String = "",
     val active: Boolean = true,
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val isPinned: Boolean = false,
+    val isVerified: Boolean = false,
+    val photoUrl: String = "",
+    val selfieUrl: String = "",
+    val gender: String = "Male" // "Male" or "Female"
 )
 
 data class BannerAd(
@@ -36,7 +43,8 @@ data class BannerAd(
     val linkUrl: String = "",
     val displaySize: String = "M", // S, M, L
     val type: String = "Image Background", // Image Background, Video Background, Promotional Text
-    val duration: Float = 5f
+    val duration: Float = 5f,
+    val categoryId: String = ""
 )
 
 data class IncidentReport(
@@ -52,7 +60,12 @@ data class IncidentReport(
 data class Moderator(
     val id: String = "",
     val username: String = "",
-    val password: String = ""
+    val password: String = "",
+    val canAcceptRequests: Boolean = true,
+    val canManageCategories: Boolean = true,
+    val canManageBanners: Boolean = true,
+    val canDeleteProviders: Boolean = true,
+    val canSeeReports: Boolean = true
 )
 
 data class ChatMessage(
@@ -83,5 +96,8 @@ data class AppConfig(
     val footerText: String = "دليل الخدمات اليمني الموحد 2026 © جميع الحقوق محفوظة",
     val footerFontSize: Int = 11,
     val aboutImageUrl: String = "https://images.unsplash.com/photo-1581092921461-eab62e97a780",
-    val appDownloadUrl: String = "https://play.google.com"
+    val appDownloadUrl: String = "https://play.google.com",
+    val searchRadiusKm: Int = 10,
+    val voiceSearchEnabled: Boolean = true,
+    val retentionDays: Int = 30
 )

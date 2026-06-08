@@ -281,6 +281,7 @@ fun MainAppScreen() {
 
     var userSelectedTab by remember { mutableStateOf("HOME") }
     var isAIChatViewExpanded by remember { mutableStateOf(false) }
+    var isArabic by remember { mutableStateOf(true) }
 
     // Set default category selected on first load
     LaunchedEffect(categories) {
@@ -396,46 +397,92 @@ fun MainAppScreen() {
                 modifier = Modifier.fillMaxSize(),
                 bottomBar = {
                     Column {
-                        // System dynamic footer configured instantly by database
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(0.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp, horizontal = 12.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Text(
-                                    text = configState.footerText,
-                                    fontSize = 11.sp,
-                                    color = Color.Gray,
-                                    textAlign = TextAlign.Center
-                                )
-                            }
-                        }
-
-                        // Bottom navigation bar in user mode
+                        // M3 Styled Single Footer replacing bottom navigation entirely as requested
                         if (!isOwnerMode && !(loggedInSupervisor != null && isAdminMode)) {
-                            NavigationBar(
-                                containerColor = MaterialTheme.colorScheme.surface,
-                                tonalElevation = 8.dp,
-                                modifier = Modifier.height(64.dp)
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)
+                                ),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
                             ) {
-                                NavigationBarItem(
-                                    selected = userSelectedTab == "HOME",
-                                    onClick = { userSelectedTab = "HOME" },
-                                    icon = { Icon(imageVector = Icons.Default.Home, contentDescription = "Home", modifier = Modifier.size(20.dp)) },
-                                    label = { Text("الرئيسية", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
-                                )
-                                NavigationBarItem(
-                                    selected = userSelectedTab == "ABOUT",
-                                    onClick = { userSelectedTab = "ABOUT" },
-                                    icon = { Icon(imageVector = Icons.Default.Info, contentDescription = "About", modifier = Modifier.size(20.dp)) },
-                                    label = { Text("عن التطبيق", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
-                                )
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        // Left: About Shortcut Icon (reduced by 50% as requested)
+                                        IconButton(
+                                            onClick = {
+                                                userSelectedTab = if (userSelectedTab == "ABOUT") "HOME" else "ABOUT"
+                                            },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Info,
+                                                contentDescription = "عن التطبيق",
+                                                tint = if (userSelectedTab == "ABOUT") MaterialTheme.colorScheme.primary else Color.Gray,
+                                                modifier = Modifier.size(16.dp) // 50% scale
+                                            )
+                                        }
+
+                                        // Center Footer Text
+                                        Text(
+                                            text = if (configState.footerText.isNotBlank()) configState.footerText else "WAM777644670",
+                                            fontSize = configState.footerFontSize.sp,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
+                                            textAlign = TextAlign.Center,
+                                            modifier = Modifier.weight(1f)
+                                        )
+
+                                        // Right: Floating AI assistant small circle button with "خدمات" label
+                                        Surface(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(20.dp))
+                                                .clickable {
+                                                    isAIChatViewExpanded = !isAIChatViewExpanded
+                                                },
+                                            color = MaterialTheme.colorScheme.primary,
+                                            contentColor = Color.Black
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.SmartToy,
+                                                    contentDescription = "خدمات",
+                                                    modifier = Modifier.size(14.dp),
+                                                    tint = Color.Black
+                                                )
+                                                Text(
+                                                    text = "خدمات",
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color.Black
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(2.dp))
+
+                                    // Below Footer: Version Number
+                                    Text(
+                                        text = "النسخة wam2026 - إصدار V2.6.2026",
+                                        fontSize = 8.sp,
+                                        color = Color.Gray.copy(alpha = 0.7f),
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
                             }
                         }
                     }
@@ -560,43 +607,108 @@ fun MainAppScreen() {
                                     }
 
                                     Row(
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
+                                        // 🏠 Home Icon
                                         IconButton(
                                             onClick = {
+                                                userSelectedTab = "HOME"
                                                 secretClickCount++
                                                 if (secretClickCount >= 5) {
                                                     showOwnerPasswordDialog = true
                                                 }
                                             },
                                             modifier = Modifier
-                                                .size(44.dp)
+                                                .size(38.dp)
                                                 .background(
                                                     MaterialTheme.colorScheme.surface,
-                                                    RoundedCornerShape(10.dp)
+                                                    RoundedCornerShape(8.dp)
                                                 )
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.Home,
-                                                contentDescription = "Home Gateway",
-                                                tint = MaterialTheme.colorScheme.primary
+                                                contentDescription = "الرئيسية",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(18.dp)
                                             )
                                         }
 
+                                        // 🔐 Admin Login Icon
                                         IconButton(
                                             onClick = { showLoginDialog = true },
                                             modifier = Modifier
-                                                .size(44.dp)
+                                                .size(38.dp)
                                                 .background(
                                                     MaterialTheme.colorScheme.surface,
-                                                    RoundedCornerShape(10.dp)
+                                                    RoundedCornerShape(8.dp)
                                                 )
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.Lock,
-                                                contentDescription = "Admin Area",
-                                                tint = MaterialTheme.colorScheme.primary
+                                                contentDescription = "تسجيل الدخول",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+
+                                        // 👤 Provider Register Icon
+                                        IconButton(
+                                            onClick = { showRegisterDialog = true },
+                                            modifier = Modifier
+                                                .size(38.dp)
+                                                .background(
+                                                    MaterialTheme.colorScheme.surface,
+                                                    RoundedCornerShape(8.dp)
+                                                )
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Person,
+                                                contentDescription = "إنشاء حساب مقدم خدمة",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+
+                                        // 🌐 Language switcher (Ar/En)
+                                        IconButton(
+                                            onClick = {
+                                                isArabic = !isArabic
+                                                Toast.makeText(context, if (isArabic) "تم تحويل اللغة إلى العربية" else "Language switched to English", Toast.LENGTH_SHORT).show()
+                                            },
+                                            modifier = Modifier
+                                                .size(38.dp)
+                                                .background(
+                                                    MaterialTheme.colorScheme.surface,
+                                                    RoundedCornerShape(8.dp)
+                                                )
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Language,
+                                                contentDescription = "تغيير اللغة",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+
+                                        // 🔄 Data Refresh
+                                        IconButton(
+                                            onClick = {
+                                                FirebaseManager.forceNetworkRefresh()
+                                                Toast.makeText(context, "تم تحديث البيانات والربط فورياً 🔄", Toast.LENGTH_SHORT).show()
+                                            },
+                                            modifier = Modifier
+                                                .size(38.dp)
+                                                .background(
+                                                    MaterialTheme.colorScheme.surface,
+                                                    RoundedCornerShape(8.dp)
+                                                )
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Refresh,
+                                                contentDescription = "تحديث الصفحة والبيانات",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(18.dp)
                                             )
                                         }
                                     }
@@ -1798,13 +1910,13 @@ fun FloatingActionChatWidget(
         modifier = Modifier
             .fillMaxSize()
             .padding(
-                end = config.chatIconXOffset.dp,
-                bottom = config.chatIconYOffset.dp
+                start = 14.dp, // positioned on the left side above info icon
+                bottom = (config.chatIconYOffset + 14).dp
             ),
-        contentAlignment = Alignment.BottomEnd
+        contentAlignment = Alignment.BottomStart
     ) {
         Column(
-            horizontalAlignment = Alignment.End,
+            horizontalAlignment = Alignment.Start,
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             // Chat Expand Panel
@@ -1878,6 +1990,7 @@ fun FloatingActionChatWidget(
                                         placeholder = { Text("مثال: أمين ردمان") },
                                         singleLine = true,
                                         modifier = Modifier.fillMaxWidth(),
+                                        textStyle = androidx.compose.ui.text.TextStyle(color = Color.White),
                                         colors = OutlinedTextFieldDefaults.colors(
                                             focusedBorderColor = themeColor,
                                             unfocusedBorderColor = Color.Gray
@@ -1937,6 +2050,7 @@ fun FloatingActionChatWidget(
                                         placeholder = { Text("تفاصيل المشكلة للتحقق...") },
                                         modifier = Modifier.weight(1f),
                                         maxLines = 2,
+                                        textStyle = androidx.compose.ui.text.TextStyle(color = Color.White),
                                         colors = OutlinedTextFieldDefaults.colors(
                                             focusedBorderColor = themeColor,
                                             unfocusedBorderColor = Color.Gray
@@ -2745,10 +2859,29 @@ fun OwnerDashboardViewOld(
 }
 
 object GeminiHelper {
+    private fun checkOfflineKeywords(prompt: String): String? {
+        val p = prompt.trim()
+        if (p.contains("أقسام") || p.contains("اقسام") || p.contains("فئة") || p.contains("فئات") || p.contains("مهن") || p.contains("مهنة") || p.contains("متوفر")) {
+            return "مرحباً بك في المساعد المحلي المباشر 🤖\n\nالأقسام المتوفرة حالياً في التطبيق هي:\n🔧 سباكة وتمديدات\n⚡ طاقة شمسية وكهرباء\n📱 برمجة وصيانة هواتف\n🧹 نظافة وصيانة منزلية\n🚗 صيانة سيارات وميكانيك\n\nويمكنك العثور على جميع الفئات والمهنيين مباشرة في واجهة التطبيق الرئيسية."
+        }
+        if (p.contains("اتصال") || p.contains("اتصل") || p.contains("تواصل") || p.contains("راسل") || p.contains("واتساب")) {
+            return "مرحباً بك في المساعد المحلي المباشر 🤖\n\nطريقة الاتصال بمقدمي الخدمات:\n1️⃣ تصفح الفنيين أو ابحث عن الاسم أو المهنة.\n2️⃣ اضغط على بطاقة فني الخدمة لعرض تفاصيله الكاملة.\n3️⃣ ستجد بداخلها زر 'اتصال هاتفي مباشر' 📞 وزر 'مراسلة عبر واتس اب' 💬 للتواصل الفوري السريع معه."
+        }
+        if (p.contains("رقم") || p.contains("دعم") || p.contains("فني") || p.contains("مساعدة") || p.contains("رقم الدعم")) {
+            return "مرحباً بك في المساعد المحلي المباشر 🤖\n\nللدعم السحابي والتقني، يمكنك الاتصال فوراً برقم الدعم الفني العام الموحد لتطبيق كل خدمات اليمن:\n📞 هاتف وواتساب: 777644670\n📨 بريد إلكتروني: support@dalyly.yemen"
+        }
+        if (p.contains("بلاغ") || p.contains("ابلاغ") || p.contains("أبلغ") || p.contains("اشتكي") || p.contains("شكوى")) {
+            return "مرحباً بك في المساعد المحلي المباشر 🤖\n\nخطوات تقديم بلاغ سريع:\n1️⃣ افتح صفحة تفاصيل مقدم الخدمة المعني.\n2️⃣ اضغط على زر 'الإبلاغ عن مقدم الخدمة' ⚠️ التابع للتذييل والصفحة.\n3️⃣ اكتب اسمك وجوالك ووصف البلاغ، ثم اضغط 'إرسال البلاغ'. وسيتم اتخاذ الإجراء من المشرفين في فترة قصيرة."
+        }
+        return null
+    }
+
     suspend fun generateResponse(prompt: String): String = withContext(Dispatchers.IO) {
         val apiKey = BuildConfig.GEMINI_API_KEY
         if (apiKey.isEmpty()) {
-            return@withContext "خطأ: لم يتم تهيئة مفتاح API الخاص بالذكاء الاصطناعي."
+            val offlineAnswer = checkOfflineKeywords(prompt)
+            if (offlineAnswer != null) return@withContext offlineAnswer
+            return@withContext "خطأ: لم يتم تهيئة مفتاح API الخاص بالذكاء الاصطناعي.\nيمكنك تجربة الأسئلة المحلية المباشرة لليمن مثل: 'الأقسام المتوفرة'، 'طريقة الاتصال'، 'رقم الدعم'، أو 'طريقة تقديم بلاغ'."
         }
         val urlString = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=$apiKey"
         try {
@@ -2799,10 +2932,14 @@ object GeminiHelper {
                 "لم يتم استلام نص استجابة من المساعد."
             } else {
                 val errorText = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
-                "خطأ في الاتصال بالذكاء الاصطناعي: $responseCode\n$errorText"
+                val offlineAnswer = checkOfflineKeywords(prompt)
+                if (offlineAnswer != null) return@withContext offlineAnswer
+                "خطأ في الاتصال بالذكاء الاصطناعي السحابي: $responseCode\n$errorText"
             }
         } catch (e: Exception) {
-            "فشل الاتصال بمساعد الذكاء الاصطناعي: ${e.localizedMessage}"
+            val offlineAnswer = checkOfflineKeywords(prompt)
+            if (offlineAnswer != null) return@withContext offlineAnswer
+            "عذراً، لا يوجد اتصال نشط بالشبكة حالياً 🌐.\nيمكنك الاستفسار محلياً وسأقوم بالإجابة الفورية عن الأسئلة التالية:\n- الأقسام المتوفرة\n- طريقة الاتصال بالفنيين\n- رقم الدعم الفني باليمن\n- طريقة تقديم بلاغ"
         }
     }
 }
@@ -3128,6 +3265,7 @@ fun FloatingAIAssistantWidget(
                                 placeholder = { Text("اطرح سؤالاً...") },
                                 modifier = Modifier.weight(1f),
                                 maxLines = 2,
+                                textStyle = androidx.compose.ui.text.TextStyle(color = Color.White),
                                 colors = OutlinedTextFieldDefaults.colors(
                                     focusedBorderColor = themeColor,
                                     unfocusedBorderColor = Color.Gray

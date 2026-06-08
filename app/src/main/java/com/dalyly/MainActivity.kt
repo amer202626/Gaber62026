@@ -48,6 +48,13 @@ import android.speech.RecognizerIntent
 import android.app.Activity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.OutputStreamWriter
+import java.net.HttpURLConnection
+import java.net.URL
+import org.json.JSONObject
+import org.json.JSONArray
 import androidx.activity.result.launch
 import java.io.ByteArrayOutputStream
 import com.dalyly.R
@@ -89,6 +96,8 @@ fun DalylyTheme(
         }
     }
 
+    val txtColor = parseColor(config.textColorHex, Color.White)
+
     // Theme Colors
     val colors = when (config.themeType) {
         "Custom Colors" -> {
@@ -102,8 +111,8 @@ fun DalylyTheme(
                 surface = Color(0xFF151515),
                 onPrimary = Color.Black,
                 onSecondary = Color.White,
-                onBackground = Color(0xFFFFFDF5),
-                onSurface = Color(0xFFE8E5D8)
+                onBackground = txtColor,
+                onSurface = txtColor
             )
         }
         "Yemen Red" -> darkColorScheme(
@@ -114,8 +123,8 @@ fun DalylyTheme(
             surface = Color(0xFF1F1F1F),
             onPrimary = Color.White,
             onSecondary = Color.White,
-            onBackground = Color(0xFFE3E3E3),
-            onSurface = Color(0xFFE3E3E3)
+            onBackground = txtColor,
+            onSurface = txtColor
         )
         "Ocean Blue" -> darkColorScheme(
             primary = Color(0xFF00ADB5), // Cyan Tech
@@ -125,19 +134,41 @@ fun DalylyTheme(
             surface = Color(0xFF161B22),
             onPrimary = Color.Black,
             onSecondary = Color.White,
-            onBackground = Color(0xFFF0F6FC),
-            onSurface = Color(0xFFC9D1D9)
+            onBackground = txtColor,
+            onSurface = txtColor
         )
-        "luxury Golden" -> darkColorScheme(
+        "luxury Golden", "الذهبي الفاخر", "الذهبي الفاخر ✨", "Luxury Gold" -> darkColorScheme(
             primary = Color(0xFFD4AF37), // Metallic Gold
             secondary = Color(0xFFFFD700), // Bright Gold Accent
             tertiary = Color(0xFF2C2C2C), // Pitch Grey
-            background = Color(0xFF0A0A0A),
-            surface = Color(0xFF151515),
+            background = Color(0xFF141414), // Charcoal coal background
+            surface = Color(0xFF1F1F1F), // Charcoal card surface
             onPrimary = Color.Black,
             onSecondary = Color.Black,
-            onBackground = Color(0xFFFFFDF5),
-            onSurface = Color(0xFFE8E5D8)
+            onBackground = txtColor,
+            onSurface = txtColor
+        )
+        "Cosmic Silver", "كوزميك سيلفر", "كوزميك سيلفر 🌌" -> darkColorScheme(
+            primary = Color(0xFFD1D1D6), // Metallic Cosmic Silver
+            secondary = Color(0xFF8E8E93), // Darker Silver Accent
+            tertiary = Color(0xFFC0C0C0),
+            background = Color(0xFF0F0F12), // Eye-safe comfortable deep space slate dark
+            surface = Color(0xFF1C1C1E), // Slate dark card background
+            onPrimary = Color.Black,
+            onSecondary = Color.White,
+            onBackground = txtColor,
+            onSurface = txtColor
+        )
+        "Royal Emerald", "الزمردي الراقي", "الزمردي الراقي 🟢" -> darkColorScheme(
+            primary = Color(0xFF50C878), // Royal Emerald Green
+            secondary = Color(0xFF00A86B), // Majestic deep accent green
+            tertiary = Color(0xFFD4AF37), // Luxury gold touch highlight
+            background = Color(0xFF08120D), // Deep green dark background
+            surface = Color(0xFF102218), // Dark forest card container surface
+            onPrimary = Color.White,
+            onSecondary = Color.White,
+            onBackground = txtColor,
+            onSurface = txtColor
         )
         else -> darkColorScheme( // Classic Dark
             primary = Color(0xFFEAA135), // Golden Orange
@@ -147,13 +178,39 @@ fun DalylyTheme(
             surface = Color(0xFF232529),
             onPrimary = Color.Black,
             onSecondary = Color.White,
-            onBackground = Color(0xFFECEFF4),
-            onSurface = Color(0xFFD8DEE9)
+            onBackground = txtColor,
+            onSurface = txtColor
         )
     }
 
+    val defaultWeight = if (config.fontType == "Normal" || config.fontType == "عادي" || config.fontType == "Default") FontWeight.Normal else FontWeight.Bold
+    val defaultFamily = when (config.fontType) {
+        "Serif", "منسق" -> androidx.compose.ui.text.font.FontFamily.Serif
+        "Monospace", "مبرمج" -> androidx.compose.ui.text.font.FontFamily.Monospace
+        else -> androidx.compose.ui.text.font.FontFamily.Default
+    }
+    
+    val typography = androidx.compose.material3.Typography(
+        bodyLarge = androidx.compose.ui.text.TextStyle(fontWeight = defaultWeight, fontFamily = defaultFamily, color = txtColor),
+        bodyMedium = androidx.compose.ui.text.TextStyle(fontWeight = defaultWeight, fontFamily = defaultFamily, color = txtColor),
+        bodySmall = androidx.compose.ui.text.TextStyle(fontWeight = defaultWeight, fontFamily = defaultFamily, color = txtColor),
+        titleLarge = androidx.compose.ui.text.TextStyle(fontWeight = defaultWeight, fontFamily = defaultFamily, color = txtColor),
+        titleMedium = androidx.compose.ui.text.TextStyle(fontWeight = defaultWeight, fontFamily = defaultFamily, color = txtColor),
+        titleSmall = androidx.compose.ui.text.TextStyle(fontWeight = defaultWeight, fontFamily = defaultFamily, color = txtColor),
+        labelLarge = androidx.compose.ui.text.TextStyle(fontWeight = defaultWeight, fontFamily = defaultFamily, color = txtColor),
+        labelMedium = androidx.compose.ui.text.TextStyle(fontWeight = defaultWeight, fontFamily = defaultFamily, color = txtColor),
+        labelSmall = androidx.compose.ui.text.TextStyle(fontWeight = defaultWeight, fontFamily = defaultFamily, color = txtColor),
+        displayLarge = androidx.compose.ui.text.TextStyle(fontWeight = defaultWeight, fontFamily = defaultFamily, color = txtColor),
+        displayMedium = androidx.compose.ui.text.TextStyle(fontWeight = defaultWeight, fontFamily = defaultFamily, color = txtColor),
+        displaySmall = androidx.compose.ui.text.TextStyle(fontWeight = defaultWeight, fontFamily = defaultFamily, color = txtColor),
+        headlineLarge = androidx.compose.ui.text.TextStyle(fontWeight = defaultWeight, fontFamily = defaultFamily, color = txtColor),
+        headlineMedium = androidx.compose.ui.text.TextStyle(fontWeight = defaultWeight, fontFamily = defaultFamily, color = txtColor),
+        headlineSmall = androidx.compose.ui.text.TextStyle(fontWeight = defaultWeight, fontFamily = defaultFamily, color = txtColor)
+    )
+
     MaterialTheme(
         colorScheme = colors,
+        typography = typography,
         content = content
     )
 }
@@ -221,6 +278,9 @@ fun MainAppScreen() {
     var clientChatName by remember { mutableStateOf("") }
     var isNameSavedForChat by remember { mutableStateOf(false) }
     var draftChatMessage by remember { mutableStateOf("") }
+
+    var userSelectedTab by remember { mutableStateOf("HOME") }
+    var isAIChatViewExpanded by remember { mutableStateOf(false) }
 
     // Set default category selected on first load
     LaunchedEffect(categories) {
@@ -335,24 +395,48 @@ fun MainAppScreen() {
             Scaffold(
                 modifier = Modifier.fillMaxSize(),
                 bottomBar = {
-                    // System dynamic footer configured instantly by database
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(0.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 8.dp, horizontal = 12.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
+                    Column {
+                        // System dynamic footer configured instantly by database
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(0.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                         ) {
-                            Text(
-                                text = configState.footerText,
-                                fontSize = configState.footerFontSize.sp,
-                                color = Color.Gray,
-                                textAlign = TextAlign.Center
-                            )
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp, horizontal = 12.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = configState.footerText,
+                                    fontSize = 11.sp,
+                                    color = Color.Gray,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+
+                        // Bottom navigation bar in user mode
+                        if (!isOwnerMode && !(loggedInSupervisor != null && isAdminMode)) {
+                            NavigationBar(
+                                containerColor = MaterialTheme.colorScheme.surface,
+                                tonalElevation = 8.dp,
+                                modifier = Modifier.height(64.dp)
+                            ) {
+                                NavigationBarItem(
+                                    selected = userSelectedTab == "HOME",
+                                    onClick = { userSelectedTab = "HOME" },
+                                    icon = { Icon(imageVector = Icons.Default.Home, contentDescription = "Home", modifier = Modifier.size(20.dp)) },
+                                    label = { Text("الرئيسية", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                                )
+                                NavigationBarItem(
+                                    selected = userSelectedTab == "ABOUT",
+                                    onClick = { userSelectedTab = "ABOUT" },
+                                    icon = { Icon(imageVector = Icons.Default.Info, contentDescription = "About", modifier = Modifier.size(20.dp)) },
+                                    label = { Text("عن التطبيق", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                                )
+                            }
                         }
                     }
                 }
@@ -394,6 +478,9 @@ fun MainAppScreen() {
                             }
                         )
                     } else {
+                        if (userSelectedTab == "ABOUT") {
+                            AboutAppScreenView(config = configState, context = context)
+                        } else {
                         // Users Directory Screen
                         Column(
                             modifier = Modifier
@@ -840,7 +927,10 @@ fun MainAppScreen() {
                             }
                             Spacer(modifier = Modifier.height(60.dp))
                         }
+                    }
 
+                    // overlays!
+                    if (!isOwnerMode && !(loggedInSupervisor != null && isAdminMode)) {
                         // Realtime Floating Support chat widget (synced with Firestore live snapshot!)
                         FloatingActionChatWidget(
                             config = configState,
@@ -870,9 +960,17 @@ fun MainAppScreen() {
                                 }
                             }
                         )
+
+                        // Floating AI Assistant Widget
+                        FloatingAIAssistantWidget(
+                            config = configState,
+                            isExpanded = isAIChatViewExpanded,
+                            onToggle = { isAIChatViewExpanded = !isAIChatViewExpanded }
+                        )
                     }
                 }
             }
+        }
 
             // === POPUP WINDOWS / DIALOGS ===
 
@@ -1684,10 +1782,25 @@ fun FloatingActionChatWidget(
 ) {
     if (!config.chatIconVisible) return
 
+    val fallbackPrimary = MaterialTheme.colorScheme.primary
+    val themeColor = try {
+        val hex = config.chatIconColorHex.trim().replace("#", "")
+        if (hex.length == 6 || hex.length == 8) {
+            Color(android.graphics.Color.parseColor("#$hex"))
+        } else {
+            fallbackPrimary
+        }
+    } catch (e: Exception) {
+        fallbackPrimary
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
+            .padding(
+                end = config.chatIconXOffset.dp,
+                bottom = config.chatIconYOffset.dp
+            ),
         contentAlignment = Alignment.BottomEnd
     ) {
         Column(
@@ -1707,7 +1820,7 @@ fun FloatingActionChatWidget(
                     shape = RoundedCornerShape(16.dp),
                     color = MaterialTheme.colorScheme.surface,
                     shadowElevation = 8.dp,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+                    border = BorderStroke(1.dp, themeColor.copy(alpha = 0.5f))
                 ) {
                     if (config.chatDisabled) {
                         // Closed Chat view
@@ -1734,7 +1847,7 @@ fun FloatingActionChatWidget(
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .background(MaterialTheme.colorScheme.primary)
+                                    .background(themeColor)
                                     .padding(8.dp)
                             ) {
                                 Row(
@@ -1759,19 +1872,24 @@ fun FloatingActionChatWidget(
                                     Text("أهلاً بك! الرجاء كتابة اسمك الكريم لبدء المحادثة:", fontSize = 11.sp, color = Color.White)
                                     Spacer(modifier = Modifier.height(10.dp))
                                     var tempName by remember { mutableStateOf("") }
-                                    TextField(
+                                    OutlinedTextField(
                                         value = tempName,
                                         onValueChange = { tempName = it },
                                         placeholder = { Text("مثال: أمين ردمان") },
                                         singleLine = true,
-                                        modifier = Modifier.fillMaxWidth()
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = themeColor,
+                                            unfocusedBorderColor = Color.Gray
+                                        )
                                     )
                                     Spacer(modifier = Modifier.height(12.dp))
                                     Button(
                                         onClick = { onNameSave(tempName) },
-                                        modifier = Modifier.fillMaxWidth()
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = ButtonDefaults.buttonColors(containerColor = themeColor, contentColor = Color.Black)
                                     ) {
-                                        Text("ابدأ المحادثة")
+                                        Text("ابدأ المحادثة", fontWeight = FontWeight.Bold)
                                     }
                                 }
                             } else {
@@ -1792,12 +1910,12 @@ fun FloatingActionChatWidget(
                                             Column(
                                                 modifier = Modifier
                                                     .background(
-                                                        color = if (isAdmin) Color.DarkGray else MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
+                                                        color = if (isAdmin) Color.DarkGray else themeColor.copy(alpha = 0.2f),
                                                         shape = RoundedCornerShape(10.dp)
                                                     )
                                                     .padding(8.dp)
                                             ) {
-                                                Text(text = msg.senderName, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                                Text(text = msg.senderName, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = themeColor)
                                                 Text(text = msg.messageText, fontSize = 11.sp, color = Color.White)
                                             }
                                         }
@@ -1808,19 +1926,25 @@ fun FloatingActionChatWidget(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
+                                        .background(Color.Black.copy(alpha = 0.2f))
                                         .padding(8.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    TextField(
+                                    OutlinedTextField(
                                         value = draftText,
                                         onValueChange = { onDraftChange(it) },
                                         placeholder = { Text("تفاصيل المشكلة للتحقق...") },
                                         modifier = Modifier.weight(1f),
-                                        singleLine = true
+                                        maxLines = 2,
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = themeColor,
+                                            unfocusedBorderColor = Color.Gray
+                                        )
                                     )
                                     IconButton(
                                         onClick = onSendMessage,
-                                        modifier = Modifier.background(MaterialTheme.colorScheme.primary, CircleShape)
+                                        modifier = Modifier.background(themeColor, CircleShape)
                                     ) {
                                         Icon(imageVector = Icons.Default.Send, contentDescription = "Send", tint = Color.Black)
                                     }
@@ -1834,8 +1958,9 @@ fun FloatingActionChatWidget(
             // Floating Main Button
             FloatingActionButton(
                 onClick = onToggle,
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = Color.Black
+                containerColor = themeColor,
+                contentColor = Color.Black,
+                modifier = Modifier.size(config.chatIconSize.dp)
             ) {
                 Icon(
                     imageVector = if (isExpanded) Icons.Default.Close else Icons.Default.Chat,
@@ -2614,6 +2739,434 @@ fun OwnerDashboardViewOld(
                 ) {
                     Text("حفظ ونشر التحديثات للجميع 💾", fontWeight = FontWeight.Bold)
                 }
+            }
+        }
+    }
+}
+
+object GeminiHelper {
+    suspend fun generateResponse(prompt: String): String = withContext(Dispatchers.IO) {
+        val apiKey = BuildConfig.GEMINI_API_KEY
+        if (apiKey.isEmpty()) {
+            return@withContext "خطأ: لم يتم تهيئة مفتاح API الخاص بالذكاء الاصطناعي."
+        }
+        val urlString = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=$apiKey"
+        try {
+            val url = URL(urlString)
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            conn.doOutput = true
+            conn.connectTimeout = 15000
+            conn.readTimeout = 15000
+
+            // Construct simple JSON: {"contents": [{"parts": [{"text": "prompt"}]}]}
+            val requestJson = JSONObject().apply {
+                put("contents", JSONArray().apply {
+                    put(JSONObject().apply {
+                        put("parts", JSONArray().apply {
+                            put(JSONObject().apply {
+                                put("text", prompt)
+                            })
+                        })
+                    })
+                })
+            }
+
+            val os = conn.outputStream
+            val writer = OutputStreamWriter(os, "UTF-8")
+            writer.write(requestJson.toString())
+            writer.flush()
+            writer.close()
+            os.close()
+
+            val responseCode = conn.responseCode
+            if (responseCode == HttpURLConnection.HTTP_OK) {
+                val responseText = conn.inputStream.bufferedReader().use { it.readText() }
+                // Parse response JSON: candidates[0].content.parts[0].text
+                val root = JSONObject(responseText)
+                val candidates = root.optJSONArray("candidates")
+                if (candidates != null && candidates.length() > 0) {
+                    val firstCandidate = candidates.getJSONObject(0)
+                    val content = firstCandidate.optJSONObject("content")
+                    if (content != null) {
+                        val parts = content.optJSONArray("parts")
+                        if (parts != null && parts.length() > 0) {
+                            return@withContext parts.getJSONObject(0).optString("text")
+                        }
+                    }
+                }
+                "لم يتم استلام نص استجابة من المساعد."
+            } else {
+                val errorText = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
+                "خطأ في الاتصال بالذكاء الاصطناعي: $responseCode\n$errorText"
+            }
+        } catch (e: Exception) {
+            "فشل الاتصال بمساعد الذكاء الاصطناعي: ${e.localizedMessage}"
+        }
+    }
+}
+
+@Composable
+fun AboutAppScreenView(config: AppConfig, context: Context) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text(
+            text = "✨ بوابتك إلى الخدمات المباشرة باليمن ✨",
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.primary,
+            textAlign = TextAlign.Center,
+            fontWeight = FontWeight.ExtraBold
+        )
+
+        // Rounded banner image loaded instantly!
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(180.dp),
+            shape = RoundedCornerShape(16.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+        ) {
+            val aboutPainter = if (config.aboutImageUrl.isNotBlank()) {
+                coil.compose.rememberAsyncImagePainter(model = config.aboutImageUrl)
+            } else {
+                coil.compose.rememberAsyncImagePainter(model = "https://images.unsplash.com/photo-1581092921461-eab62e97a780")
+            }
+            Image(
+                painter = aboutPainter,
+                contentDescription = "About Banner",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        }
+
+        // About Description Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f)),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = config.aboutText.ifBlank { "تطبيق دليلي للخدمات اليمنية هو تطبيق متكامل يربط بين المواطن وأفضل الفنيين المؤهلين ومزودي الخدمات في كافة التخصصات والمهن في جميع المحافظات." },
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = Color.White,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 22.sp
+                )
+            }
+        }
+
+        Text(
+            text = "📞 قنوات التواصل والدعم الفني المباشر:",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.align(Alignment.Start)
+        )
+
+        // Grid of interactive action buttons
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Call support
+                Card(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable {
+                            try {
+                                val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${config.supportPhone}"))
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "فشل فتح تطبيق الاتصال", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(imageVector = Icons.Default.Phone, contentDescription = "Call", tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("اتصال هاتفي", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text(config.supportPhone, fontSize = 10.sp, color = Color.Gray)
+                    }
+                }
+
+                // WhatsApp
+                Card(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable {
+                            try {
+                                val url = "https://api.whatsapp.com/send?phone=${config.supportWhatsapp}"
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "فشل فتح تطبيق واتساب", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(imageVector = Icons.Default.Chat, contentDescription = "WhatsApp", tint = Color.Green)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("مراسلة واتساب", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text(config.supportWhatsapp, fontSize = 10.sp, color = Color.Gray)
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Email
+                Card(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable {
+                            try {
+                                val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:${config.supportEmail}"))
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "فشل فتح تطبيق البريد الإلكتروني", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(imageVector = Icons.Default.Email, contentDescription = "Email", tint = MaterialTheme.colorScheme.secondary)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("البريد الإلكتروني", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text(config.supportEmail.take(15) + "...", fontSize = 9.sp, color = Color.Gray)
+                    }
+                }
+
+                // Share link
+                Card(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable {
+                            try {
+                                val intent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_TEXT, "قم بتحميل تطبيق دليلي للخدمات والصيانة في اليمن الآن وتواصل مع أفضل الفنيين الفوريين سحابياً:\n${config.shareUrl}")
+                                }
+                                context.startActivity(Intent.createChooser(intent, "مشاركة التطبيق عبر:"))
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "فشل فتح واجهة المشاركة", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(imageVector = Icons.Default.Share, contentDescription = "Share", tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("مشاركة التطبيق", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text("انشر الفائدة", fontSize = 10.sp, color = Color.Gray)
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+    }
+}
+
+@Composable
+fun FloatingAIAssistantWidget(
+    config: AppConfig,
+    isExpanded: Boolean,
+    onToggle: () -> Unit
+) {
+    if (!config.aiAssistantVisible) return
+
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    
+    // AI Chat History state (local to session)
+    var aiMessages by remember { mutableStateOf(listOf(ChatMessage(senderName = "دليلي الذكي 🤖", messageText = config.welcomeMessage.ifBlank { "مرحباً بك! أنا مساعدك الذكي لخدمات اليمن. كيف يمكنني مساعدتك اليوم؟" }, isFromAdmin = true))) }
+    var aiDraft by remember { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(false) }
+
+    fun parseColor(hex: String, default: Color): Color {
+        return try {
+            val cleanHex = hex.trim().replace("#", "")
+            if (cleanHex.length == 6) {
+                Color(android.graphics.Color.parseColor("#$cleanHex"))
+            } else if (cleanHex.length == 8) {
+                Color(android.graphics.Color.parseColor("#$cleanHex"))
+            } else {
+                default
+            }
+        } catch (e: Exception) {
+            default
+        }
+    }
+
+    val themeColor = parseColor(config.aiAssistantColorHex, MaterialTheme.colorScheme.primary)
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(
+                end = config.aiAssistantXOffset.dp,
+                bottom = config.aiAssistantYOffset.dp
+            ),
+        contentAlignment = Alignment.BottomEnd
+    ) {
+        Column(
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Chat Dialog panel
+            AnimatedVisibility(
+                visible = isExpanded,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .width(310.dp)
+                        .height(380.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    shadowElevation = 8.dp,
+                    border = BorderStroke(1.dp, themeColor.copy(alpha = 0.5f))
+                ) {
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        // Header panel
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(themeColor)
+                                .padding(8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("🤖 المساعد الذكي (دليلي AI)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                                Icon(imageVector = Icons.Default.SmartToy, contentDescription = "AI", tint = Color.Black, modifier = Modifier.size(16.dp))
+                            }
+                        }
+
+                        // Messages list
+                        LazyColumn(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(8.dp)
+                        ) {
+                            items(aiMessages) { msg ->
+                                val isAi = msg.isFromAdmin
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
+                                    contentAlignment = if (isAi) Alignment.CenterStart else Alignment.CenterEnd
+                                ) {
+                                    Column(
+                                        modifier = Modifier
+                                            .background(
+                                                color = if (isAi) Color.DarkGray else themeColor.copy(alpha = 0.2f),
+                                                shape = RoundedCornerShape(10.dp)
+                                            )
+                                            .padding(8.dp)
+                                    ) {
+                                        Text(text = if (isAi) "مساعد دليلي الذكي 🤖" else "أنت", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = themeColor)
+                                        Text(text = msg.messageText, fontSize = 11.sp, color = Color.White)
+                                    }
+                                }
+                            }
+                            if (isLoading) {
+                                item {
+                                    Box(
+                                        modifier = Modifier.fillMaxWidth().padding(8.dp),
+                                        contentAlignment = Alignment.CenterStart
+                                    ) {
+                                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = themeColor)
+                                    }
+                                }
+                            }
+                        }
+
+                        // Message input box
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color.Black.copy(alpha = 0.2f))
+                                .padding(8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = aiDraft,
+                                onValueChange = { aiDraft = it },
+                                placeholder = { Text("اطرح سؤالاً...") },
+                                modifier = Modifier.weight(1f),
+                                maxLines = 2,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = themeColor,
+                                    unfocusedBorderColor = Color.Gray
+                                )
+                            )
+                            IconButton(
+                                onClick = {
+                                    if (aiDraft.isNotBlank() && !isLoading) {
+                                        val userMsg = aiDraft
+                                        aiMessages = aiMessages + ChatMessage(senderName = "أنت", messageText = userMsg, isFromAdmin = false)
+                                        aiDraft = ""
+                                        isLoading = true
+                                        scope.launch {
+                                            val response = GeminiHelper.generateResponse(userMsg)
+                                            aiMessages = aiMessages + ChatMessage(senderName = "المساعد الذكي 🤖", messageText = response, isFromAdmin = true)
+                                            isLoading = false
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.background(themeColor, CircleShape)
+                            ) {
+                                Icon(imageVector = Icons.Default.Send, contentDescription = "Send", tint = Color.Black)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Floating Main Assistant Icon
+            FloatingActionButton(
+                onClick = onToggle,
+                containerColor = themeColor,
+                contentColor = Color.Black,
+                modifier = Modifier.size(config.aiAssistantSize.dp)
+            ) {
+                Icon(
+                    imageVector = if (isExpanded) Icons.Default.Close else Icons.Default.SmartToy,
+                    contentDescription = "AI Assistant"
+                )
             }
         }
     }

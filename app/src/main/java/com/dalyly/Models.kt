@@ -99,7 +99,20 @@ data class AppConfig(
     val appDownloadUrl: String = "https://play.google.com",
     val searchRadiusKm: Int = 10,
     val voiceSearchEnabled: Boolean = true,
-    val retentionDays: Int = 30
+    val retentionDays: Int = 30,
+    val aiAssistantXOffset: Int = 16,
+    val aiAssistantYOffset: Int = 90,
+    val chatIconXOffset: Int = 16,
+    val chatIconYOffset: Int = 16,
+    val supportPhone: String = "777644670",
+    val supportWhatsapp: String = "777644670",
+    val supportEmail: String = "support@dalyly.com",
+    val shareUrl: String = "https://play.google.com/store/apps/details?id=com.dalyly",
+    val aboutText: String = "تطبيق دليلي للخدمات اليمنية هو دليل فني متكامل يجمع أفضل مقدمي الخدمات الفنية والمهنية في مكان واحد.",
+    val welcomeMessage: String = "مرحباً بك في تطبيق دليلي للخدمات والمهن الصيانة!",
+    val adminPassword: String = "maher736462",
+    val textColorHex: String = "#FFFFFF",
+    val fontType: String = "عريض"
 )
 
 data class RegistrationTerm(

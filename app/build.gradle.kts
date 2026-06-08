@@ -1,8 +1,10 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.serialization)
-    // alias(libs.plugins.google.services)
+    alias(libs.plugins.google.services)
 }
 
 android {
@@ -20,6 +22,24 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        // Dynamically read GEMINI_API_KEY from environment configuration files
+        val envFile = project.rootProject.file(".env")
+        val fallbackFile = project.rootProject.file(".env.example")
+        var geminiKey = ""
+        if (envFile.exists()) {
+            val properties = Properties()
+            properties.load(envFile.inputStream())
+            geminiKey = properties.getProperty("GEMINI_API_KEY") ?: ""
+        } else if (fallbackFile.exists()) {
+            val properties = Properties()
+            properties.load(fallbackFile.inputStream())
+            geminiKey = properties.getProperty("GEMINI_API_KEY") ?: ""
+        }
+        if (geminiKey.isEmpty()) {
+            geminiKey = System.getenv("GEMINI_API_KEY") ?: ""
+        }
+        buildConfigField("String", "GEMINI_API_KEY", "\"$geminiKey\"")
     }
 
     buildTypes {

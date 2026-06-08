@@ -129,33 +129,32 @@ fun AdminDashboardView(
     val allowedTabs = remember(loggedUser, supervisors, pendingProviders.size, incidents.size, activeProviders.size) {
         val list = mutableListOf<Pair<String, String>>()
         if (isOwnerOrMain || supervisorObj?.canAcceptRequests == true) {
-            list.add("PENDING" to "طلبات التسجيل المعلقة (${pendingProviders.size}) ⏳")
+            list.add("PENDING" to "1. طلبات التسجيل (${pendingProviders.size}) ⏳")
         }
         if (isOwnerOrMain || supervisorObj?.canManageCategories == true) {
-            list.add("ADD_MANUAL" to "تسجيل وتعديل فني ✍️")
+            list.add("ADD_MANUAL" to "2. إضافة وتعديل فني ✍️")
         }
         if (isOwnerOrMain || supervisorObj?.canManageBanners == true) {
-            list.add("BANNERS" to "الإعلانات والافتات 📢")
+            list.add("BANNERS" to "3. إعلانات وبنرات 📢")
         }
         if (isOwnerOrMain || supervisorObj?.canManageCategories == true) {
-            list.add("CATEGORIES_CITIES" to "الأقسام والمدن 🏛️")
+            list.add("CATEGORIES_CITIES" to "4. إدارة الأقسام والمدن 🏛️")
         }
         if (isOwnerOrMain || supervisorObj?.canSeeReports == true) {
-            list.add("REPORTS" to "البلاغات والتقارير (${incidents.size}) 🚨")
+            list.add("REPORTS" to "5. الإبلاغات والتقارير (${incidents.size}) 🚨")
         }
         if (isOwnerOrMain) {
-            list.add("CHATS" to "مراقبة سجل الدردشة 💬")
+            list.add("CHATS" to "6. سجل الدردشة والخصوصية 💬")
         }
         if (isOwnerOrMain || supervisorObj?.canDeleteProviders == true) {
-            list.add("ACTIVE_PROVIDERS" to "المزودين النشطين (${activeProviders.size}) 👥")
+            list.add("ACTIVE_PROVIDERS" to "7. المزودين النشطين (${activeProviders.size}) 👥")
         }
         if (isOwnerOrMain || supervisorObj?.canDeleteProviders == true) {
-            list.add("SUBSCRIPTIONS" to "الاشتراكات والتثبيت 👑")
+            list.add("SUBSCRIPTIONS" to "8. الاشتراكات والتثبيت 👑")
         }
         if (isOwnerOrMain) {
-            list.add("SUPERVISORS" to "إدارة المشرفين 🛡️")
-            list.add("REGISTRATION_TERMS" to "شروط التسجيل 📝")
-            list.add("CONFIGS" to "ثيم الألوان والهوية 🎨")
+            list.add("SUPERVISORS" to "9. إدارة المشرفين 🛡️")
+            list.add("CONFIGS" to "10. الألوان والخطوط والشروط 🎨📝")
         }
         list
     }
@@ -1130,8 +1129,118 @@ fun AdminDashboardView(
                 }
             }
 
-            "REGISTRATION_TERMS" -> {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            "CONFIGS" -> {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("لوحة تعقيب وضبط الألوان والهوية الترابطية والسلوك 🎨:", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+
+                    TextField(value = configAppName, onValueChange = { configAppName = it }, label = { Text("اسم التطبيق المعتمد بالواجهة") }, modifier = Modifier.fillMaxWidth())
+                    TextField(value = configLogoUrl, onValueChange = { configLogoUrl = it }, label = { Text("رابط الشعار السحابي الموحد") }, modifier = Modifier.fillMaxWidth())
+
+                    Text("اختر ثيم لوحة ألوان المحتوى:", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    val themes = listOf("Classic Dark", "Yemen Red", "Yemen Golden", "Ocean Blue")
+                    themes.forEach { th ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().clickable { configThemeType = th }.padding(vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(selected = configThemeType == th, onClick = { configThemeType = th })
+                            Text(text = th, fontSize = 12.sp)
+                        }
+                    }
+
+                    if (configThemeType == "Yemen Golden" || configThemeType == "Custom") {
+                        TextField(value = configPrimaryColor, onValueChange = { configPrimaryColor = it }, label = { Text("كود هيكس اللون الأساسي (e.g. #D4AF37)") }, modifier = Modifier.fillMaxWidth())
+                        TextField(value = configSecondaryColor, onValueChange = { configSecondaryColor = it }, label = { Text("كود هيكس اللون الثانوي (e.g. #111111)") }, modifier = Modifier.fillMaxWidth())
+                    }
+
+                    TextField(value = configTermsByAdmin, onValueChange = { configTermsByAdmin = it }, label = { Text("شروط وضوابط التسجيل الفني") }, modifier = Modifier.fillMaxWidth())
+                    TextField(value = configFooterText, onValueChange = { configFooterText = it }, label = { Text("نص تذييل الصفحة وحفظ الحقوق") }, modifier = Modifier.fillMaxWidth())
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = configChatDisabled, onCheckedChange = { configChatDisabled = it })
+                        Text("إيقاف وتعطيل غرفة شات الدعم المباشر مؤقتًا 📴", fontSize = 12.sp)
+                    }
+
+                    if (configChatDisabled) {
+                        TextField(value = configChatWarningMsg, onValueChange = { configChatWarningMsg = it }, label = { Text("رسالة تعطيل الشات المعروضة للمواطن") }, modifier = Modifier.fillMaxWidth())
+                    }
+
+                    // Floating widget sliders
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("أداة التحكم بقطر وحجم وسيلة الدعم العائمة 💬 (dp):", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Slider(value = configChatIconSize, onValueChange = { configChatIconSize = it }, valueRange = 40f..90f, modifier = Modifier.fillMaxWidth())
+                    Text("الحجم المحدد: ${configChatIconSize.toInt()} dp", fontSize = 10.sp)
+
+                    Text("أداة التحكم بقطر وحجم أيقونة مساعد الذكاء الاصطناعي 🤖 (dp):", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Slider(value = configAiIconSize, onValueChange = { configAiIconSize = it }, valueRange = 40f..90f, modifier = Modifier.fillMaxWidth())
+                    Text("الحجم المحدد: ${configAiIconSize.toInt()} dp", fontSize = 10.sp)
+
+                    // RADIUS, RETENTION, SPEECH
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("نطاق قطر البحث الجغرافي وخوارزمية الخدمة المجاورة (كم):", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    TextField(value = configSearchRadius, onValueChange = { configSearchRadius = it }, label = { Text("مسافة القطر (بالكيلومتر)") }, modifier = Modifier.fillMaxWidth())
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = configVoiceSpeechEnabled, onCheckedChange = { configVoiceSpeechEnabled = it })
+                        Text("تشغيل خوارزمية البحث عبر الأوامر الصوتية بالواجهة 🎤", fontSize = 11.sp)
+                    }
+
+                    TextField(value = configRetentionDays, onValueChange = { configRetentionDays = it }, label = { Text("مدة تفريغ السجلات وحفظ الملفات المؤقتة تلقائياً (بالأيام)") }, modifier = Modifier.fillMaxWidth())
+
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Button(
+                        onClick = {
+                            val daysLimit = configRetentionDays.toIntOrNull() ?: 30
+                            // Simulate database sweep cleanup
+                            incidents.forEach { inc ->
+                                if (inc.status == "RESOLVED") {
+                                    FirebaseManager.deleteIncident(inc.id)
+                                }
+                            }
+                            Toast.makeText(context, "تم تنظيف السيرفر وتنظيف الكاش وتطهير السجلات بنجاح!", Toast.LENGTH_LONG).show()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("تنظيف الكاش وقاعدة البيانات السلوكية 🧼", color = Color.White)
+                    }
+
+                    Button(
+                        onClick = {
+                            if (configAppName.trim().isEmpty()) {
+                                Toast.makeText(context, "الرجاء تحديد اسماً صالحاً للتطبيق", Toast.LENGTH_SHORT).show()
+                                return@Button
+                            }
+                            val updated = config.copy(
+                                appName = configAppName.trim(),
+                                logoUrl = configLogoUrl.trim(),
+                                themeType = configThemeType,
+                                primaryColorHex = configPrimaryColor,
+                                secondaryColorHex = configSecondaryColor,
+                                registrationTerms = configTermsByAdmin,
+                                footerText = configFooterText,
+                                chatDisabled = configChatDisabled,
+                                chatDisabledMessage = configChatWarningMsg,
+                                chatIconSize = configChatIconSize.toInt(),
+                                aiAssistantSize = configAiIconSize.toInt(),
+                                searchRadiusKm = configSearchRadius.toIntOrNull() ?: 10,
+                                voiceSearchEnabled = configVoiceSpeechEnabled,
+                                retentionDays = configRetentionDays.toIntOrNull() ?: 30
+                            )
+                            FirebaseManager.updateConfig(updated) {
+                                Toast.makeText(context, "تم حفظ وضبط الدستور وتعميمه على كل المشتركين فوراً!", Toast.LENGTH_LONG).show()
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("تثبيت وتحصين خيارات الهوية سحابياً 💾")
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Divider(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                    Spacer(modifier = Modifier.height(8.dp))
+
                     Text("📝 إدارة شروط وقواعد تسجيل مزودي الخدمة بالاتصال السحابي اللحظي:", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, fontSize = 14.sp)
                     
                     Text("إضافة شرط أو تعهد قانوني جديد لمزود الخدمة:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.LightGray)
@@ -1313,116 +1422,6 @@ fun AdminDashboardView(
                                 }
                             }
                         }
-                    }
-                }
-            }
-
-            "CONFIGS" -> {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("لوحة تعقيب وضبط الألوان والهوية الترابطية والسلوك 🎨:", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-
-                    TextField(value = configAppName, onValueChange = { configAppName = it }, label = { Text("اسم التطبيق المعتمد بالواجهة") }, modifier = Modifier.fillMaxWidth())
-                    TextField(value = configLogoUrl, onValueChange = { configLogoUrl = it }, label = { Text("رابط الشعار السحابي الموحد") }, modifier = Modifier.fillMaxWidth())
-
-                    Text("اختر ثيم لوحة ألوان المحتوى:", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    val themes = listOf("Classic Dark", "Yemen Red", "Yemen Golden", "Ocean Blue")
-                    themes.forEach { th ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth().clickable { configThemeType = th }.padding(vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(selected = configThemeType == th, onClick = { configThemeType = th })
-                            Text(text = th, fontSize = 12.sp)
-                        }
-                    }
-
-                    if (configThemeType == "Yemen Golden" || configThemeType == "Custom") {
-                        TextField(value = configPrimaryColor, onValueChange = { configPrimaryColor = it }, label = { Text("كود هيكس اللون الأساسي (e.g. #D4AF37)") }, modifier = Modifier.fillMaxWidth())
-                        TextField(value = configSecondaryColor, onValueChange = { configSecondaryColor = it }, label = { Text("كود هيكس اللون الثانوي (e.g. #111111)") }, modifier = Modifier.fillMaxWidth())
-                    }
-
-                    TextField(value = configTermsByAdmin, onValueChange = { configTermsByAdmin = it }, label = { Text("شروط وضوابط التسجيل الفني") }, modifier = Modifier.fillMaxWidth())
-                    TextField(value = configFooterText, onValueChange = { configFooterText = it }, label = { Text("نص تذييل الصفحة وحفظ الحقوق") }, modifier = Modifier.fillMaxWidth())
-
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = configChatDisabled, onCheckedChange = { configChatDisabled = it })
-                        Text("إيقاف وتعطيل غرفة شات الدعم المباشر مؤقتًا 📴", fontSize = 12.sp)
-                    }
-
-                    if (configChatDisabled) {
-                        TextField(value = configChatWarningMsg, onValueChange = { configChatWarningMsg = it }, label = { Text("رسالة تعطيل الشات المعروضة للمواطن") }, modifier = Modifier.fillMaxWidth())
-                    }
-
-                    // Floating widget sliders
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text("أداة التحكم بقطر وحجم وسيلة الدعم العائمة 💬 (dp):", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    Slider(value = configChatIconSize, onValueChange = { configChatIconSize = it }, valueRange = 40f..90f, modifier = Modifier.fillMaxWidth())
-                    Text("الحجم المحدد: ${configChatIconSize.toInt()} dp", fontSize = 10.sp)
-
-                    Text("أداة التحكم بقطر وحجم أيقونة مساعد الذكاء الاصطناعي 🤖 (dp):", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Slider(value = configAiIconSize, onValueChange = { configAiIconSize = it }, valueRange = 40f..90f, modifier = Modifier.fillMaxWidth())
-                    Text("الحجم المحدد: ${configAiIconSize.toInt()} dp", fontSize = 10.sp)
-
-                    // RADIUS, RETENTION, SPEECH
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text("نطاق قطر البحث الجغرافي وخوارزمية الخدمة المجاورة (كم):", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    TextField(value = configSearchRadius, onValueChange = { configSearchRadius = it }, label = { Text("مسافة القطر (بالكيلومتر)") }, modifier = Modifier.fillMaxWidth())
-
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = configVoiceSpeechEnabled, onCheckedChange = { configVoiceSpeechEnabled = it })
-                        Text("تشغيل خوارزمية البحث عبر الأوامر الصوتية بالواجهة 🎤", fontSize = 11.sp)
-                    }
-
-                    TextField(value = configRetentionDays, onValueChange = { configRetentionDays = it }, label = { Text("مدة تفريغ السجلات وحفظ الملفات المؤقتة تلقائياً (بالأيام)") }, modifier = Modifier.fillMaxWidth())
-
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Button(
-                        onClick = {
-                            val daysLimit = configRetentionDays.toIntOrNull() ?: 30
-                            // Simulate database sweep cleanup
-                            incidents.forEach { inc ->
-                                if (inc.status == "RESOLVED") {
-                                    FirebaseManager.deleteIncident(inc.id)
-                                }
-                            }
-                            Toast.makeText(context, "تم تنظيف السيرفر وتنظيف الكاش وتطهير السجلات بنجاح!", Toast.LENGTH_LONG).show()
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("تنظيف الكاش وقاعدة البيانات السلوكية 🧼", color = Color.White)
-                    }
-
-                    Button(
-                        onClick = {
-                            if (configAppName.trim().isEmpty()) {
-                                Toast.makeText(context, "الرجاء تحديد اسماً صالحاً للتطبيق", Toast.LENGTH_SHORT).show()
-                                return@Button
-                            }
-                            val updated = config.copy(
-                                appName = configAppName.trim(),
-                                logoUrl = configLogoUrl.trim(),
-                                themeType = configThemeType,
-                                primaryColorHex = configPrimaryColor,
-                                secondaryColorHex = configSecondaryColor,
-                                registrationTerms = configTermsByAdmin,
-                                footerText = configFooterText,
-                                chatDisabled = configChatDisabled,
-                                chatDisabledMessage = configChatWarningMsg,
-                                chatIconSize = configChatIconSize.toInt(),
-                                aiAssistantSize = configAiIconSize.toInt(),
-                                searchRadiusKm = configSearchRadius.toIntOrNull() ?: 10,
-                                voiceSearchEnabled = configVoiceSpeechEnabled,
-                                retentionDays = configRetentionDays.toIntOrNull() ?: 30
-                            )
-                            FirebaseManager.updateConfig(updated) {
-                                Toast.makeText(context, "تم حفظ وضبط الدستور وتعميمه على كل المشتركين فوراً!", Toast.LENGTH_LONG).show()
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("تثبيت وتحصين خيارات الهوية سحابياً 💾")
                     }
                 }
             }

@@ -44,6 +44,8 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Base64
+import android.speech.RecognizerIntent
+import android.app.Activity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.launch
@@ -228,36 +230,102 @@ fun MainAppScreen() {
     }
 
     // Setup Activity-Result Launchers with JPG 60% compression
-    val galleryLauncher = rememberLauncherForActivityResult(
+    fun compressBitmapToBase64(bitmap: Bitmap): String? {
+        return try {
+            val outputStream = java.io.ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 60, outputStream)
+            val byteArray = outputStream.toByteArray()
+            "data:image/jpeg;base64," + Base64.encodeToString(byteArray, Base64.DEFAULT)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    // 1. Main Photo Gallery Launcher (ID / Document / Work symbol)
+    val mainPhotoGalleryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
         uri?.let {
             try {
                 val inputStream = context.contentResolver.openInputStream(it)
                 val bitmap = BitmapFactory.decodeStream(inputStream)
-                val outputStream = java.io.ByteArrayOutputStream()
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 60, outputStream)
-                val byteArray = outputStream.toByteArray()
-                regPhotoUrl = "data:image/jpeg;base64," + Base64.encodeToString(byteArray, Base64.DEFAULT)
-                Toast.makeText(context, "تم تحميل وضغط صورة الملف بنجاح (الجودة 60%)!", Toast.LENGTH_SHORT).show()
+                if (bitmap != null) {
+                    val encoded = compressBitmapToBase64(bitmap)
+                    if (encoded != null) {
+                        regPhotoUrl = encoded
+                        Toast.makeText(context, "تم تحميل وضغط أيقونة/شعار التخصص بنجاح 🖼️", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "فشل ضغط الصورة المختارة", Toast.LENGTH_SHORT).show()
+                    }
+                }
             } catch (e: Exception) {
-                Toast.makeText(context, "فشل معالجة وضغط الصورة", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "خطأ في قراءة ملف الصورة", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
-    val cameraLauncher = rememberLauncherForActivityResult(
+    // 2. Main Photo Camera Launcher (ID / Document / Work symbol)
+    val mainPhotoCameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicturePreview()
     ) { bitmap ->
         bitmap?.let {
+            val encoded = compressBitmapToBase64(it)
+            if (encoded != null) {
+                regPhotoUrl = encoded
+                Toast.makeText(context, "تم التقاط وضغط أيقونة/شعار التخصص بالكاميرا بنجاح 📸", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(context, "فشل معالجة لقطة الكاميرا", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    // 3. Selfie/Profession Photo Gallery Launcher
+    val selfieGalleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let {
             try {
-                val outputStream = java.io.ByteArrayOutputStream()
-                it.compress(Bitmap.CompressFormat.JPEG, 60, outputStream)
-                val byteArray = outputStream.toByteArray()
-                regSelfieUrl = "data:image/jpeg;base64," + Base64.encodeToString(byteArray, Base64.DEFAULT)
-                Toast.makeText(context, "تم التقاط وضغط الصورة الذاتية بنجاح!", Toast.LENGTH_SHORT).show()
+                val inputStream = context.contentResolver.openInputStream(it)
+                val bitmap = BitmapFactory.decodeStream(inputStream)
+                if (bitmap != null) {
+                    val encoded = compressBitmapToBase64(bitmap)
+                    if (encoded != null) {
+                        regSelfieUrl = encoded
+                        Toast.makeText(context, "تم تحميل وضغط الصورة الثانية بنجاح 🖼️", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "فشل ضغط الصورة المختارة", Toast.LENGTH_SHORT).show()
+                    }
+                }
             } catch (e: Exception) {
-                Toast.makeText(context, "فشل معالجة الصورة الملتقطة", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "خطأ في قراءة ملف الصورة الشخصية", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    // 4. Selfie/Profession Photo Camera Launcher
+    val selfieCameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicturePreview()
+    ) { bitmap ->
+        bitmap?.let {
+            val encoded = compressBitmapToBase64(it)
+            if (encoded != null) {
+                regSelfieUrl = encoded
+                Toast.makeText(context, "تم التقاط وضغط الصورة بنجاح بالكاميرا 📸", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(context, "فشل معالجة لقطة الكاميرا الشخصية", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    // 5. Voice Search Launcher
+    val voiceSearchLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val spokenText = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+            if (!spokenText.isNullOrBlank()) {
+                searchQuery = spokenText
+                Toast.makeText(context, "نص البحث التعرفي: $spokenText", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -453,6 +521,40 @@ fun MainAppScreen() {
                                 SliderBannersView(banners = banners, context = context)
                             }
 
+                            if (configState.chatDisabled) {
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.errorContainer
+                                    ),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Text("📢", fontSize = 20.sp)
+                                        Column {
+                                            Text(
+                                                text = "تنبيه إيقاف خدمة الدعم والمحادثة:",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 12.sp,
+                                                color = MaterialTheme.colorScheme.onErrorContainer
+                                            )
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = configState.chatDisabledMessage,
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.85f)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
                             Spacer(modifier = Modifier.height(10.dp))
 
                             // Custom Yemen terms guidelines
@@ -507,6 +609,30 @@ fun MainAppScreen() {
                                         value = searchQuery,
                                         onValueChange = { searchQuery = it },
                                         placeholder = { Text("ابحث باسم الفني أو تخصص معين...") },
+                                        trailingIcon = {
+                                            if (configState.voiceSearchEnabled) {
+                                                IconButton(
+                                                    onClick = {
+                                                        try {
+                                                            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                                                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                                                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ar-YE")
+                                                                putExtra(RecognizerIntent.EXTRA_PROMPT, "تحدث الآن للبحث في دليلي...")
+                                                            }
+                                                            voiceSearchLauncher.launch(intent)
+                                                        } catch (e: java.lang.Exception) {
+                                                            Toast.makeText(context, "البحث الصوتي غير مدعوم على هذا الجهاز حاليًا", Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    }
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Mic,
+                                                        contentDescription = "Voice Search",
+                                                        tint = MaterialTheme.colorScheme.primary
+                                                    )
+                                                }
+                                            }
+                                        },
                                         leadingIcon = {
                                             Icon(
                                                 imageVector = Icons.Default.Search,
@@ -1047,21 +1173,30 @@ fun MainAppScreen() {
                             }
 
                             // Profile Photo / Gallery
-                            Text("أيقونة العمل / ترخيص المهنة / شعار (معرض الصور):", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text("أيقونة العمل / ترخيص المهنة / شعار المهنة 🛠️:", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Button(
-                                    onClick = { galleryLauncher.launch("image/*") },
-                                    modifier = Modifier.weight(1.3f),
-                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                                    onClick = { mainPhotoGalleryLauncher.launch("image/*") },
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
                                 ) {
-                                    Text("تحميل من الجهاز 🖼️", fontSize = 11.sp)
+                                    Text("المعرض 🖼️", fontSize = 11.sp)
+                                }
+                                Button(
+                                    onClick = { mainPhotoCameraLauncher.launch() },
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                                ) {
+                                    Text("كاميرا 🤳", fontSize = 11.sp)
                                 }
                                 if (regPhotoUrl.isNotEmpty()) {
-                                    Text("تم التحميل ✅", fontSize = 11.sp, color = Color.Green, fontWeight = FontWeight.Bold)
+                                    Text("تم ✅", fontSize = 11.sp, color = Color.Green, fontWeight = FontWeight.Bold)
                                 } else {
                                     Text("اختياري", fontSize = 11.sp, color = Color.LightGray)
                                 }
@@ -1069,35 +1204,71 @@ fun MainAppScreen() {
 
                             // Camera / Selfie Logic
                             if (regGender == "Male") {
-                                Text("صورة شخصية سلفي Selfie (إلزامي لمطابقة بيانات الهوية للذكور):", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text("صورة شخصية سلفي Selfie (إلزامي لمطابقة بيانات الهوية للذكور) 👤:", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Button(
-                                        onClick = { cameraLauncher.launch() },
-                                        modifier = Modifier.weight(1.3f)
+                                        onClick = { selfieGalleryLauncher.launch("image/*") },
+                                        modifier = Modifier.weight(1f),
+                                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
                                     ) {
-                                        Text("افتح الكاميرا والتقط 🤳", fontSize = 11.sp, color = Color.Black)
+                                        Text("من المعرض 🖼️", fontSize = 11.sp)
+                                    }
+                                    Button(
+                                        onClick = { selfieCameraLauncher.launch() },
+                                        modifier = Modifier.weight(1f),
+                                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                                    ) {
+                                        Text("افتح الكاميرا 🤳", fontSize = 11.sp)
                                     }
                                     if (regSelfieUrl.isNotEmpty()) {
-                                        Text("تم الالتقاط ✅", fontSize = 11.sp, color = Color.Green, fontWeight = FontWeight.Bold)
+                                        Text("تم ✅", fontSize = 11.sp, color = Color.Green, fontWeight = FontWeight.Bold)
                                     } else {
                                         Text("مطلوب 🚨", fontSize = 11.sp, color = Color.Red, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             } else {
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.15f))
-                                ) {
-                                    Text(
-                                        "🛡️ لحماية الخصوصية المطلقة، لا يُطلب من مقدمات الخدمة الإناث التقاط صورة ذاتية Selfie. يمكنك الاكتفاء برفع أيقونة التخصص أو أي صورة رمزية.",
-                                        fontSize = 10.sp,
-                                        modifier = Modifier.padding(10.dp),
-                                        color = Color.LightGray
-                                    )
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text("صورة تعبّر عن طبيعة العمل أو التخصص (إلزامي للإناث كبديل عن السيلفي) 👩‍🔧:", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Button(
+                                            onClick = { selfieGalleryLauncher.launch("image/*") },
+                                            modifier = Modifier.weight(1f),
+                                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                                        ) {
+                                            Text("من المعرض 🖼️", fontSize = 11.sp)
+                                        }
+                                        Button(
+                                            onClick = { selfieCameraLauncher.launch() },
+                                            modifier = Modifier.weight(1f),
+                                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                                        ) {
+                                            Text("افتح الكاميرا 🤳", fontSize = 11.sp)
+                                        }
+                                        if (regSelfieUrl.isNotEmpty()) {
+                                            Text("تم ✅", fontSize = 11.sp, color = Color.Green, fontWeight = FontWeight.Bold)
+                                        } else {
+                                            Text("مطلوب 🚨", fontSize = 11.sp, color = Color.Red, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.15f))
+                                    ) {
+                                        Text(
+                                            "🛡️ لحماية الخصوصية المطلقة، لا يُطلب من مقدمات الخدمة الإناث التقاط أو رفع صورة ذاتية Selfie للشخص الفردي. يُكتفى بصورة معبرة عن مهنتكِ أو تخصصكِ لتأكيد التواجد العملي.",
+                                            fontSize = 10.sp,
+                                            modifier = Modifier.padding(10.dp),
+                                            color = Color.LightGray
+                                        )
+                                    }
                                 }
                             }
 

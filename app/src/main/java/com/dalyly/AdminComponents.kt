@@ -116,6 +116,7 @@ fun AdminDashboardView(
     supervisors: List<Moderator>,
     chats: List<ChatMessage>,
     cities: List<String>,
+    registrationTerms: List<RegistrationTerm>,
     onLogout: () -> Unit
 ) {
     val isOwnerOrMain = loggedUser == "المالك السري (Owner)" || loggedUser == "WAM2026"
@@ -153,6 +154,7 @@ fun AdminDashboardView(
         }
         if (isOwnerOrMain) {
             list.add("SUPERVISORS" to "إدارة المشرفين 🛡️")
+            list.add("REGISTRATION_TERMS" to "شروط التسجيل 📝")
             list.add("CONFIGS" to "ثيم الألوان والهوية 🎨")
         }
         list
@@ -167,6 +169,12 @@ fun AdminDashboardView(
     }
 
     // STATE VARIABLES
+    // Dynamic Registration Terms states
+    var newTermText by remember { mutableStateOf("") }
+    var editingTermId by remember { mutableStateOf<String?>(null) }
+    var editingTermText by remember { mutableStateOf("") }
+    var showDeleteConfirmId by remember { mutableStateOf<String?>(null) }
+
     // Tab 2: Manual add/editing states
     var editingId by remember { mutableStateOf<String?>(null) }
     var mName by remember { mutableStateOf("") }
@@ -881,7 +889,6 @@ fun AdminDashboardView(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column {
-                                text = chat.senderName
                                 Text(chat.senderName, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                                 Text(chat.messageText, fontSize = 11.sp, color = Color.White)
                             }
@@ -1123,6 +1130,193 @@ fun AdminDashboardView(
                 }
             }
 
+            "REGISTRATION_TERMS" -> {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("📝 إدارة شروط وقواعد تسجيل مزودي الخدمة بالاتصال السحابي اللحظي:", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, fontSize = 14.sp)
+                    
+                    Text("إضافة شرط أو تعهد قانوني جديد لمزود الخدمة:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.LightGray)
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        TextField(
+                            value = newTermText,
+                            onValueChange = { newTermText = it },
+                            label = { Text("مثال: الالتزام بالأسعار المحددة وعدم رفعها") },
+                            modifier = Modifier.weight(1f)
+                        )
+                        Button(
+                            onClick = {
+                                if (newTermText.trim().isEmpty()) {
+                                    Toast.makeText(context, "الرجاء كتابة نص الشرط أولاً", Toast.LENGTH_SHORT).show()
+                                    return@Button
+                                }
+                                val maxOrder = (registrationTerms.maxOfOrNull { it.order } ?: -1) + 1
+                                val term = RegistrationTerm(
+                                    text = newTermText.trim(),
+                                    order = maxOrder,
+                                    isActive = true
+                                )
+                                FirebaseManager.saveRegistrationTerm(term) {
+                                    Toast.makeText(context, "تم رفع وحفظ الشرط اللحظي السحابي بنجاح 🟢", Toast.LENGTH_SHORT).show()
+                                    newTermText = ""
+                                }
+                            }
+                        ) {
+                            Icon(imageVector = Icons.Default.Add, contentDescription = "Add")
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("إضافة")
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text("شروط التسجيل الحالية النشطة وغير النشطة (إعادة الترتيب اللحظي):", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (registrationTerms.isEmpty()) {
+                            Text("لا توجد شروط مدخلة حالياً. جاري سحب الشروط الافتراضية للبلد...", fontSize = 12.sp, color = Color.Gray)
+                        } else {
+                            registrationTerms.forEachIndexed { idx, term ->
+                                Card(
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (term.isActive) MaterialTheme.colorScheme.surface else Color.White.copy(alpha = 0.05f)
+                                    ),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(10.dp).fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Box(
+                                                    contentAlignment = Alignment.Center,
+                                                    modifier = Modifier
+                                                        .size(24.dp)
+                                                        .background(MaterialTheme.colorScheme.primary, CircleShape)
+                                                ) {
+                                                    Text(
+                                                        text = "${idx + 1}",
+                                                        fontSize = 11.sp,
+                                                        color = Color.Black,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(
+                                                    text = if (term.isActive) "نشط 📢" else "معطل 📴",
+                                                    fontSize = 10.sp,
+                                                    color = if (term.isActive) Color.Green else Color.Gray,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Text(
+                                                text = term.text,
+                                                fontSize = 12.sp,
+                                                color = if (term.isActive) Color.White else Color.LightGray.copy(alpha = 0.6f)
+                                            )
+                                        }
+
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Checkbox(
+                                                checked = term.isActive,
+                                                onCheckedChange = { checked ->
+                                                    FirebaseManager.saveRegistrationTerm(term.copy(isActive = checked)) {
+                                                        Toast.makeText(context, "تم تحديث حالة تفعيل الشرط اللحظي سحابياً!", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                }
+                                            )
+
+                                            IconButton(
+                                                onClick = {
+                                                    if (idx > 0) {
+                                                        val prev = registrationTerms[idx - 1]
+                                                        val thisOrder = term.order
+                                                        val prevOrder = prev.order
+                                                        FirebaseManager.saveRegistrationTerm(term.copy(order = prevOrder))
+                                                        FirebaseManager.saveRegistrationTerm(prev.copy(order = thisOrder)) {
+                                                            Toast.makeText(context, "تم رفع رتبة الترتيب للشرط ⬆️", Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    }
+                                                },
+                                                enabled = idx > 0
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.ArrowUpward,
+                                                    contentDescription = "Move Up",
+                                                    tint = if (idx > 0) MaterialTheme.colorScheme.primary else Color.Gray,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+
+                                            IconButton(
+                                                onClick = {
+                                                    if (idx < registrationTerms.size - 1) {
+                                                        val next = registrationTerms[idx + 1]
+                                                        val thisOrder = term.order
+                                                        val nextOrder = next.order
+                                                        FirebaseManager.saveRegistrationTerm(term.copy(order = nextOrder))
+                                                        FirebaseManager.saveRegistrationTerm(next.copy(order = thisOrder)) {
+                                                            Toast.makeText(context, "تم خفض رتبة الترتيب للشرط ⬇️", Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    }
+                                                },
+                                                enabled = idx < registrationTerms.size - 1
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.ArrowDownward,
+                                                    contentDescription = "Move Down",
+                                                    tint = if (idx < registrationTerms.size - 1) MaterialTheme.colorScheme.primary else Color.Gray,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+
+                                            IconButton(
+                                                onClick = {
+                                                    editingTermId = term.id
+                                                    editingTermText = term.text
+                                                }
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Edit,
+                                                    contentDescription = "Edit Term",
+                                                    tint = Color.Yellow,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+
+                                            IconButton(
+                                                onClick = {
+                                                    showDeleteConfirmId = term.id
+                                                }
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Delete,
+                                                    contentDescription = "Delete",
+                                                    tint = Color.Red,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             "CONFIGS" -> {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("لوحة تعقيب وضبط الألوان والهوية الترابطية والسلوك 🎨:", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
@@ -1229,6 +1423,92 @@ fun AdminDashboardView(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text("تثبيت وتحصين خيارات الهوية سحابياً 💾")
+                    }
+                }
+            }
+        }
+    }
+
+    // Edit Term Dialog
+    if (editingTermId != null) {
+        Dialog(onDismissRequest = {
+            editingTermId = null
+            editingTermText = ""
+        }) {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("تعديل نص الشرط أو التعهد 📝:", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    TextField(
+                        value = editingTermText,
+                        onValueChange = { editingTermText = it },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TextButton(onClick = {
+                            editingTermId = null
+                            editingTermText = ""
+                        }) {
+                            Text("إلغاء")
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(onClick = {
+                            if (editingTermText.trim().isEmpty()) {
+                                Toast.makeText(context, "الرجاء كتابة النص", Toast.LENGTH_SHORT).show()
+                                return@Button
+                            }
+                            val targetTerm = registrationTerms.find { it.id == editingTermId }
+                            if (targetTerm != null) {
+                                FirebaseManager.saveRegistrationTerm(targetTerm.copy(text = editingTermText.trim())) {
+                                    Toast.makeText(context, "تم حفظ التعديل بنجاح 🟢", Toast.LENGTH_SHORT).show()
+                                    editingTermId = null
+                                    editingTermText = ""
+                                }
+                            }
+                        }) {
+                            Text("حفظ التحديث")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Delete Term Confirmation Dialog
+    if (showDeleteConfirmId != null) {
+        Dialog(onDismissRequest = { showDeleteConfirmId = null }) {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("تأكيد إزالة شرط التسجيل ⚠️:", fontWeight = FontWeight.Bold, color = Color.Red, fontSize = 14.sp)
+                    Text("هل أنت متأكد من رغبتك في حذف هذا الشرط نهائياً من قائمة الشروط سحابياً؟ لن يتمكن مقدمو الخدمات الجدد من الاطلاع عليه.", fontSize = 11.sp, color = Color.LightGray)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(onClick = { showDeleteConfirmId = null }) {
+                            Text("رجوع وإلغاء")
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                FirebaseManager.deleteRegistrationTerm(showDeleteConfirmId!!) {
+                                    Toast.makeText(context, "تم حذف الشرط بنجاح!", Toast.LENGTH_SHORT).show()
+                                    showDeleteConfirmId = null
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+                        ) {
+                            Text("نعم، احذف للكل")
+                        }
                     }
                 }
             }

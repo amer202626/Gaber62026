@@ -171,6 +171,11 @@ fun MainAppScreen() {
     val chats by FirebaseManager.chats.collectAsState()
     val supervisors by FirebaseManager.supervisors.collectAsState()
     val cities by FirebaseManager.citiesList.collectAsState()
+    val registrationTerms by FirebaseManager.registrationTerms.collectAsState()
+
+    val sharedPrefs = remember(context) { context.getSharedPreferences("dalyly_prefs", Context.MODE_PRIVATE) }
+    var rememberMeOwner by remember { mutableStateOf(sharedPrefs.getBoolean("remember_owner", false)) }
+    var rememberMeAdmin by remember { mutableStateOf(sharedPrefs.getBoolean("remember_admin", false)) }
 
     // UI Navigation & Filters states
     var selectedCategoryTabId by remember { mutableStateOf("") }
@@ -178,8 +183,8 @@ fun MainAppScreen() {
     var searchQuery by remember { mutableStateOf("") }
 
     // Admin state
-    var isAdminMode by remember { mutableStateOf(false) }
-    var loggedInSupervisor by remember { mutableStateOf<String?>(null) }
+    var isAdminMode by remember { mutableStateOf(sharedPrefs.getBoolean("is_admin", false)) }
+    var loggedInSupervisor by remember { mutableStateOf<String?>(sharedPrefs.getString("logged_supervisor", null)) }
     var showLoginDialog by remember { mutableStateOf(false) }
     var loginUser by remember { mutableStateOf("") }
     
@@ -187,7 +192,7 @@ fun MainAppScreen() {
     var secretClickCount by remember { mutableStateOf(0) }
     var showOwnerPasswordDialog by remember { mutableStateOf(false) }
     var ownerPasswordInput by remember { mutableStateOf("") }
-    var isOwnerMode by remember { mutableStateOf(false) }
+    var isOwnerMode by remember { mutableStateOf(sharedPrefs.getBoolean("is_owner", false)) }
     var loginPass by remember { mutableStateOf("") }
 
     // Create applications & forms states
@@ -258,7 +263,7 @@ fun MainAppScreen() {
     }
 
     DalylyTheme(config = configState) {
-        CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.platform.LayoutDirection.Rtl) {
+        CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Rtl) {
             Scaffold(
                 modifier = Modifier.fillMaxSize(),
                 bottomBar = {
@@ -302,7 +307,17 @@ fun MainAppScreen() {
                             supervisors = supervisors,
                             chats = chats,
                             cities = cities,
+                            registrationTerms = registrationTerms,
                             onLogout = {
+                                sharedPrefs.edit()
+                                    .putBoolean("is_owner", false)
+                                    .putBoolean("is_admin", false)
+                                    .putString("logged_supervisor", null)
+                                    .putBoolean("remember_owner", false)
+                                    .putBoolean("remember_admin", false)
+                                    .apply()
+                                rememberMeOwner = false
+                                rememberMeAdmin = false
                                 isOwnerMode = false
                                 loggedInSupervisor = null
                                 isAdminMode = false
@@ -612,7 +627,7 @@ fun MainAppScreen() {
                                 text = "المزودون والفنيون المسجلون مباشرة (${filteredProviders.size}):",
                                 fontSize = 12.sp,
                                 color = Color.Gray,
-                                modifier = Modifier.padding(horizontal = 16.dp, bottom = 8.dp)
+                                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
                             )
 
                             if (filteredProviders.isEmpty()) {
@@ -775,6 +790,17 @@ fun MainAppScreen() {
                             )
 
                             Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth().clickable { rememberMeAdmin = !rememberMeAdmin }
+                            ) {
+                                Checkbox(
+                                    checked = rememberMeAdmin,
+                                    onCheckedChange = { rememberMeAdmin = it }
+                                )
+                                Text("حفظ تسجيل الدخول للمرة القادمة ⏳", fontSize = 11.sp, color = Color.White)
+                            }
+
+                            Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
@@ -793,9 +819,17 @@ fun MainAppScreen() {
                                         val isMainAdmin = loginUser.trim() == "WAM2026" && loginPass.trim() == "maher736462"
                                         val isLegacyAdmin = loginUser.trim() == "admin" && loginPass.trim() == "admin2026"
                                         if (match != null || isMainAdmin || isLegacyAdmin) {
-                                            loggedInSupervisor = if (isMainAdmin) "WAM2026" else (match?.username ?: "الإدارة العليا")
+                                            val suName = if (isMainAdmin) "WAM2026" else (match?.username ?: "الإدارة العليا")
+                                            loggedInSupervisor = suName
                                             isAdminMode = true
                                             showLoginDialog = false
+                                            
+                                            sharedPrefs.edit()
+                                                .putBoolean("is_admin", rememberMeAdmin)
+                                                .putString("logged_supervisor", if (rememberMeAdmin) suName else null)
+                                                .putBoolean("remember_admin", rememberMeAdmin)
+                                                .apply()
+
                                             Toast.makeText(context, "أهلاً بك مشرف: $loginUser", Toast.LENGTH_SHORT).show()
                                         } else {
                                             Toast.makeText(context, "البيانات خاطئة أو لحساب معطل", Toast.LENGTH_SHORT).show()
@@ -843,6 +877,17 @@ fun MainAppScreen() {
                             )
 
                             Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth().clickable { rememberMeOwner = !rememberMeOwner }
+                            ) {
+                                Checkbox(
+                                    checked = rememberMeOwner,
+                                    onCheckedChange = { rememberMeOwner = it }
+                                )
+                                Text("حفظ تسجيل الدخول للمرة القادمة ⏳", fontSize = 11.sp, color = Color.White)
+                            }
+
+                            Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
@@ -863,6 +908,12 @@ fun MainAppScreen() {
                                             showOwnerPasswordDialog = false
                                             ownerPasswordInput = ""
                                             secretClickCount = 0
+                                            
+                                            sharedPrefs.edit()
+                                                .putBoolean("is_owner", rememberMeOwner)
+                                                .putBoolean("remember_owner", rememberMeOwner)
+                                                .apply()
+
                                             Toast.makeText(context, "أهلاً بك مالك التطبيق!", Toast.LENGTH_SHORT).show()
                                         } else {
                                             Toast.makeText(context, "الرمز السري غير صحيح!", Toast.LENGTH_SHORT).show()
@@ -1047,6 +1098,36 @@ fun MainAppScreen() {
                                         modifier = Modifier.padding(10.dp),
                                         color = Color.LightGray
                                     )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(imageVector = Icons.Default.FactCheck, contentDescription = "Terms", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("تعهد وشروط مزاولة المهنة المعتمدة باليمن 📝:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                    }
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    if (registrationTerms.isEmpty()) {
+                                        Text("جاري مزامنة الشروط التعبدية بالدليل من السيرفر...", fontSize = 11.sp, color = Color.Gray)
+                                    } else {
+                                        registrationTerms.filter { it.isActive }.sortedBy { it.order }.forEachIndexed { idx, term ->
+                                            Text(
+                                                text = "${idx + 1}. ${term.text}",
+                                                fontSize = 11.sp,
+                                                color = Color.LightGray,
+                                                lineHeight = 16.sp
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text("📝 بالضغط على زر الإرسال، فإنك تقر وتلتزم التزاماً كاملاً بكافة البنود والشروط القانونية المذكورة أعلاه.", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                                 }
                             }
 
@@ -1737,7 +1818,7 @@ fun AdminDashboardViewOld(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = 4.dp),
-                            border = BorderStroke(1.dp, Color.Orange)
+                            border = BorderStroke(1.dp, Color(0xFFFFA500))
                         ) {
                             Column(modifier = Modifier.padding(12.dp)) {
                                 Text(text = "الاسم: ${pending.name}", fontWeight = FontWeight.Bold)

@@ -101,3 +101,11 @@ data class AppConfig(
     val voiceSearchEnabled: Boolean = true,
     val retentionDays: Int = 30
 )
+
+data class RegistrationTerm(
+    val id: String = "",
+    val text: String = "",
+    val order: Int = 0,
+    val isActive: Boolean = true
+)
+

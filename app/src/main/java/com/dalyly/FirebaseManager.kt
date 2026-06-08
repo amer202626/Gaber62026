@@ -8,6 +8,19 @@ import kotlinx.coroutines.flow.MutableStateFlow
 object FirebaseManager {
     private val db by lazy { FirebaseFirestore.getInstance() }
 
+    init {
+        try {
+            val settings = com.google.firebase.firestore.FirebaseFirestoreSettings.Builder()
+                .setPersistenceEnabled(true)
+                .setCacheSizeBytes(com.google.firebase.firestore.FirebaseFirestoreSettings.CACHE_SIZE_UNLIMITED)
+                .build()
+            db.firestoreSettings = settings
+            Log.d("FirebaseManager", "Firestore offline mode persistent settings successfully applied.")
+        } catch (e: Exception) {
+            Log.e("FirebaseManager", "Error setting Firestore settings", e)
+        }
+    }
+
     val categories = MutableStateFlow<List<ServiceCategory>>(emptyList())
     val providers = MutableStateFlow<List<ServiceProvider>>(emptyList())
     val banners = MutableStateFlow<List<BannerAd>>(emptyList())
@@ -16,17 +29,25 @@ object FirebaseManager {
     val supervisors = MutableStateFlow<List<Moderator>>(emptyList())
     val config = MutableStateFlow<AppConfig>(AppConfig())
     val citiesList = MutableStateFlow<List<String>>(emptyList())
+    val registrationTerms = MutableStateFlow<List<RegistrationTerm>>(emptyList())
 
     private var hasStarted = false
+    private val activeListeners = mutableListOf<com.google.firebase.firestore.ListenerRegistration>()
 
     fun startListening() {
-        if (hasStarted) return
-        hasStarted = true
+        // Clear old ones first to prevent duplicates
+        synchronized(activeListeners) {
+            for (listener in activeListeners) {
+                listener.remove()
+            }
+            activeListeners.clear()
+        }
 
+        hasStarted = true
         Log.d("FirebaseManager", "Starting live Firestore sync snapshot listeners...")
 
-        // Listen to Cities
-        db.collection("cities")
+        // 1. Cities
+        val l1 = db.collection("cities")
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     Log.e("FirebaseManager", "Error listening to cities", error)
@@ -41,9 +62,10 @@ object FirebaseManager {
                     }
                 }
             }
+        activeListeners.add(l1)
 
-        // Listen to Config (Singleton)
-        db.collection("config").document("current_config")
+        // 2. Config
+        val l2 = db.collection("config").document("current_config")
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     Log.e("FirebaseManager", "Error listening to config", error)
@@ -55,13 +77,13 @@ object FirebaseManager {
                         config.value = current
                     }
                 } else {
-                    // Create default configuration
                     db.collection("config").document("current_config").set(AppConfig())
                 }
             }
+        activeListeners.add(l2)
 
-        // Listen to Categories
-        db.collection("categories")
+        // 3. Categories
+        val l3 = db.collection("categories")
             .orderBy("displayOrder", Query.Direction.ASCENDING)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
@@ -79,9 +101,10 @@ object FirebaseManager {
                     }
                 }
             }
+        activeListeners.add(l3)
 
-        // Listen to Providers
-        db.collection("providers")
+        // 4. Providers
+        val l4 = db.collection("providers")
             .orderBy("timestamp", Query.Direction.DESCENDING)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
@@ -99,9 +122,10 @@ object FirebaseManager {
                     }
                 }
             }
+        activeListeners.add(l4)
 
-        // Listen to Banners
-        db.collection("banners")
+        // 5. Banners
+        val l5 = db.collection("banners")
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     Log.e("FirebaseManager", "Error listening to banners", error)
@@ -118,9 +142,10 @@ object FirebaseManager {
                     }
                 }
             }
+        activeListeners.add(l5)
 
-        // Listen to Incidents
-        db.collection("incidents")
+        // 6. Incidents
+        val l6 = db.collection("incidents")
             .orderBy("timestamp", Query.Direction.DESCENDING)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
@@ -133,9 +158,10 @@ object FirebaseManager {
                     }
                 }
             }
+        activeListeners.add(l6)
 
-        // Listen to Chats
-        db.collection("chats")
+        // 7. Chats
+        val l7 = db.collection("chats")
             .orderBy("timestamp", Query.Direction.ASCENDING)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
@@ -148,9 +174,10 @@ object FirebaseManager {
                     }
                 }
             }
+        activeListeners.add(l7)
 
-        // Listen to Supervisors
-        db.collection("supervisors")
+        // 8. Supervisors
+        val l8 = db.collection("supervisors")
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     Log.e("FirebaseManager", "Error listening to supervisors", error)
@@ -167,6 +194,33 @@ object FirebaseManager {
                     }
                 }
             }
+        activeListeners.add(l8)
+
+        // 9. Registration Terms
+        val l9 = db.collection("registration_terms")
+            .orderBy("order", Query.Direction.ASCENDING)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.e("FirebaseManager", "Error listening to registration terms", error)
+                    return@addSnapshotListener
+                }
+                if (snapshot != null) {
+                    val list = snapshot.documents.mapNotNull { doc ->
+                        doc.toObject(RegistrationTerm::class.java)?.copy(id = doc.id)
+                    }
+                    if (list.isEmpty()) {
+                        seedRegistrationTerms()
+                    } else {
+                        registrationTerms.value = list
+                    }
+                }
+            }
+        activeListeners.add(l9)
+    }
+
+    fun forceNetworkRefresh() {
+        Log.d("FirebaseManager", "Force network reconnection triggered. Rebinding listeners...")
+        startListening()
     }
 
     // ================== MUTATION METHODS ==================
@@ -283,7 +337,33 @@ object FirebaseManager {
             }
     }
 
+    fun saveRegistrationTerm(term: RegistrationTerm, onComplete: () -> Unit = {}) {
+        if (term.id.isEmpty()) {
+            db.collection("registration_terms").add(term)
+                .addOnSuccessListener { onComplete() }
+        } else {
+            db.collection("registration_terms").document(term.id).set(term)
+                .addOnSuccessListener { onComplete() }
+        }
+    }
+
+    fun deleteRegistrationTerm(id: String, onComplete: () -> Unit = {}) {
+        db.collection("registration_terms").document(id).delete()
+            .addOnSuccessListener { onComplete() }
+    }
+
     // ================== DATA SEEDING ==================
+
+    private fun seedRegistrationTerms() {
+        val defaultTerms = listOf(
+            RegistrationTerm("", "الالتزام بالمعايير الفنية والمهنية باليمن والمحافظة على أمانة العمل.", 0, true),
+            RegistrationTerm("", "عدم تحصيل أي مبالغ إضافية أو رسوم تفوق السعر المتفق عليه بالدليل.", 1, true),
+            RegistrationTerm("", "تحمل المسؤولية الكاملة القانونية والأخلاقية عن أي خلل ناتج عن سوء تقديم الخدمة.", 2, true)
+        )
+        for (term in defaultTerms) {
+            db.collection("registration_terms").add(term)
+        }
+    }
 
     private fun seedCategories() {
         val defaultCats = listOf(

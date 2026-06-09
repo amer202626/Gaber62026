@@ -109,6 +109,9 @@ data class AppConfig(
     val supportEmail: String = "support@dalyly.com",
     val shareUrl: String = "https://play.google.com/store/apps/details?id=com.dalyly",
     val aboutText: String = "تطبيق دليلي للخدمات اليمنية هو دليل فني متكامل يجمع أفضل مقدمي الخدمات الفنية والمهنية في مكان واحد.",
+    val aboutTitle: String = "بوابتك إلى الخدمات المباشرة باليمن",
+    val aboutImageOrTextType: String = "IMAGE", // "IMAGE" or "TEXT"
+    val aboutImageOrTextValue: String = "https://images.unsplash.com/photo-1581092921461-eab62e97a780", // image url or exact custom text
     val welcomeMessage: String = "مرحباً بك في تطبيق دليلي للخدمات والمهن الصيانة!",
     val adminPassword: String = "maher736462",
     val textColorHex: String = "#FFFFFF",

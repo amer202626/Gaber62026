@@ -154,8 +154,9 @@ fun AdminDashboardView(
         }
         if (isOwnerOrMain) {
             list.add("SUPERVISORS" to "9. إدارة المشرفين 🛡️")
-            list.add("CONFIGS" to "10. الألوان والخطوط والشروط 🎨📝")
         }
+        // Allow BOTH owner and supervisors/admins to see Configs (which contains colors, text, and Registration Terms)
+        list.add("CONFIGS" to "10. الألوان والخطوط والشروط 🎨📝")
         list
     }
 
@@ -240,6 +241,18 @@ fun AdminDashboardView(
     var configVoiceSpeechEnabled by remember { mutableStateOf(config.voiceSearchEnabled) }
     var configRetentionDays by remember { mutableStateOf(config.retentionDays.toString()) }
 
+    // Custom properties for About App customization & overlay configurations
+    var stateAboutTitle by remember { mutableStateOf(config.aboutTitle) }
+    var stateAboutText by remember { mutableStateOf(config.aboutText) }
+    var stateAboutImageOrTextType by remember { mutableStateOf(config.aboutImageOrTextType) }
+    var stateAboutImageOrTextValue by remember { mutableStateOf(config.aboutImageOrTextValue) }
+    var stateSupportPhone by remember { mutableStateOf(config.supportPhone) }
+    var stateSupportWhatsapp by remember { mutableStateOf(config.supportWhatsapp) }
+    var stateSupportEmail by remember { mutableStateOf(config.supportEmail) }
+    var stateShareUrl by remember { mutableStateOf(config.shareUrl) }
+    var stateChatIconVisible by remember { mutableStateOf(config.chatIconVisible) }
+    var stateAiAssistantVisible by remember { mutableStateOf(config.aiAssistantVisible) }
+
     var adminChatReplyDraft by remember { mutableStateOf("") }
     var providersSearchQuery by remember { mutableStateOf("") }
 
@@ -258,6 +271,17 @@ fun AdminDashboardView(
         configSearchRadius = config.searchRadiusKm.toString()
         configVoiceSpeechEnabled = config.voiceSearchEnabled
         configRetentionDays = config.retentionDays.toString()
+
+        stateAboutTitle = config.aboutTitle
+        stateAboutText = config.aboutText
+        stateAboutImageOrTextType = config.aboutImageOrTextType
+        stateAboutImageOrTextValue = config.aboutImageOrTextValue
+        stateSupportPhone = config.supportPhone
+        stateSupportWhatsapp = config.supportWhatsapp
+        stateSupportEmail = config.supportEmail
+        stateShareUrl = config.shareUrl
+        stateChatIconVisible = config.chatIconVisible
+        stateAiAssistantVisible = config.aiAssistantVisible
     }
 
     Column(
@@ -1137,7 +1161,7 @@ fun AdminDashboardView(
                     TextField(value = configLogoUrl, onValueChange = { configLogoUrl = it }, label = { Text("رابط الشعار السحابي الموحد") }, modifier = Modifier.fillMaxWidth())
 
                     Text("اختر ثيم لوحة ألوان المحتوى:", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    val themes = listOf("Classic Dark", "Yemen Red", "Yemen Golden", "Ocean Blue")
+                    val themes = listOf("Classic Dark", "Yemen Red", "Yemen Golden", "Ocean Blue", "Purple & Teal")
                     themes.forEach { th ->
                         Row(
                             modifier = Modifier.fillMaxWidth().clickable { configThemeType = th }.padding(vertical = 2.dp),
@@ -1188,6 +1212,41 @@ fun AdminDashboardView(
 
                     TextField(value = configRetentionDays, onValueChange = { configRetentionDays = it }, label = { Text("مدة تفريغ السجلات وحفظ الملفات المؤقتة تلقائياً (بالأيام)") }, modifier = Modifier.fillMaxWidth())
 
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text("إعدادات صفحة (عن التطبيق) 📄:", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, fontSize = 14.sp)
+                    
+                    TextField(value = stateAboutTitle, onValueChange = { stateAboutTitle = it }, label = { Text("النص في أعلى صفحة عن التطبيق") }, modifier = Modifier.fillMaxWidth())
+                    TextField(value = stateAboutText, onValueChange = { stateAboutText = it }, label = { Text("النص التعريفي (تطبيق دليلي هو...)") }, modifier = Modifier.fillMaxWidth())
+
+                    Text("عرض المكون تحت عنوان الصفحة:", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = stateAboutImageOrTextType == "IMAGE", onClick = { stateAboutImageOrTextType = "IMAGE" })
+                        Text("صورة بنر (مسار نت أو ذاكرة)", fontSize = 11.sp)
+                        Spacer(modifier = Modifier.width(16.dp))
+                        RadioButton(selected = stateAboutImageOrTextType == "TEXT", onClick = { stateAboutImageOrTextType = "TEXT" })
+                        Text("نص تعبيري بديل", fontSize = 11.sp)
+                    }
+                    TextField(value = stateAboutImageOrTextValue, onValueChange = { stateAboutImageOrTextValue = it }, label = { Text(if (stateAboutImageOrTextType == "IMAGE") "رابط الصورة أو مسارها الفعلي" else "النص البديل المعروض") }, modifier = Modifier.fillMaxWidth())
+
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("قنوات الدعم الفني بالصفحة ومشاركة التطبيق:", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    TextField(value = stateSupportPhone, onValueChange = { stateSupportPhone = it }, label = { Text("رقم جوال الدعم الفني للاتصال") }, modifier = Modifier.fillMaxWidth())
+                    TextField(value = stateSupportWhatsapp, onValueChange = { stateSupportWhatsapp = it }, label = { Text("رقم واتساب الدعم الفني") }, modifier = Modifier.fillMaxWidth())
+                    TextField(value = stateSupportEmail, onValueChange = { stateSupportEmail = it }, label = { Text("البريد الإلكتروني للشكاوى") }, modifier = Modifier.fillMaxWidth())
+                    TextField(value = stateShareUrl, onValueChange = { stateShareUrl = it }, label = { Text("رابط مشاركة وتحميل التطبيق") }, modifier = Modifier.fillMaxWidth())
+
+                    Divider(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+
+                    Text("صلاحية وحالة وظائف الدعم والأدوات العائمة 🎛️:", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, fontSize = 14.sp)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = stateChatIconVisible, onCheckedChange = { stateChatIconVisible = it })
+                        Text("تفعيل وإظهار أيقونة الدردشة الفورية بالرئيسية 💬", fontSize = 12.sp)
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = stateAiAssistantVisible, onCheckedChange = { stateAiAssistantVisible = it })
+                        Text("تفعيل وإظهار أيقونة مساعد الذكاء الاصطناعي الذكي 🤖", fontSize = 12.sp)
+                    }
+
                     Spacer(modifier = Modifier.height(4.dp))
                     Button(
                         onClick = {
@@ -1226,7 +1285,17 @@ fun AdminDashboardView(
                                 aiAssistantSize = configAiIconSize.toInt(),
                                 searchRadiusKm = configSearchRadius.toIntOrNull() ?: 10,
                                 voiceSearchEnabled = configVoiceSpeechEnabled,
-                                retentionDays = configRetentionDays.toIntOrNull() ?: 30
+                                retentionDays = configRetentionDays.toIntOrNull() ?: 30,
+                                aboutTitle = stateAboutTitle.trim(),
+                                aboutText = stateAboutText.trim(),
+                                aboutImageOrTextType = stateAboutImageOrTextType,
+                                aboutImageOrTextValue = stateAboutImageOrTextValue.trim(),
+                                supportPhone = stateSupportPhone.trim(),
+                                supportWhatsapp = stateSupportWhatsapp.trim(),
+                                supportEmail = stateSupportEmail.trim(),
+                                shareUrl = stateShareUrl.trim(),
+                                chatIconVisible = stateChatIconVisible,
+                                aiAssistantVisible = stateAiAssistantVisible
                             )
                             FirebaseManager.updateConfig(updated) {
                                 Toast.makeText(context, "تم حفظ وضبط الدستور وتعميمه على كل المشتركين فوراً!", Toast.LENGTH_LONG).show()

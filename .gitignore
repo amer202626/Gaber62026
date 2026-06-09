@@ -1,0 +1,16 @@
+# Gradle cache and lock files
+.gradle/
+*.lock
+*.bin
+build/
+app/build/
+
+# Build outputs
+.build-outputs/*
+!.build-outputs/app-debug.apk
+
+# Secrets and local files
+.env
+.env.*
+.evn
+local.properties

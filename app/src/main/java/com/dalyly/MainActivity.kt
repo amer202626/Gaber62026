@@ -170,6 +170,17 @@ fun DalylyTheme(
             onBackground = txtColor,
             onSurface = txtColor
         )
+        "Purple & Teal", "البنفسجي والتيال", "البنفسجي والتيال الكلاسيكي" -> darkColorScheme(
+            primary = Color(0xFF6200EE), // purple_500
+            secondary = Color(0xFF03DAC5), // teal_200
+            tertiary = Color(0xFF3700B3), // purple_700
+            background = Color(0xFF000000), // black
+            surface = Color(0xFF121212), // dark surface
+            onPrimary = Color(0xFFFFFFFF), // white
+            onSecondary = Color(0xFF000000), // black
+            onBackground = txtColor,
+            onSurface = txtColor
+        )
         else -> darkColorScheme( // Classic Dark
             primary = Color(0xFFEAA135), // Golden Orange
             secondary = Color(0xFF2D2F33), // Warm Grey
@@ -231,6 +242,9 @@ fun MainAppScreen() {
     val supervisors by FirebaseManager.supervisors.collectAsState()
     val cities by FirebaseManager.citiesList.collectAsState()
     val registrationTerms by FirebaseManager.registrationTerms.collectAsState()
+    val lastUpdateTime by FirebaseManager.lastUpdateTime.collectAsState()
+    val updateCount by FirebaseManager.updateCount.collectAsState()
+    val latestPingLatency by FirebaseManager.latestPingLatency.collectAsState()
 
     val sharedPrefs = remember(context) { context.getSharedPreferences("dalyly_prefs", Context.MODE_PRIVATE) }
     var rememberMeOwner by remember { mutableStateOf(sharedPrefs.getBoolean("remember_owner", false)) }
@@ -282,6 +296,24 @@ fun MainAppScreen() {
     var userSelectedTab by remember { mutableStateOf("HOME") }
     var isAIChatViewExpanded by remember { mutableStateOf(false) }
     var isArabic by remember { mutableStateOf(true) }
+
+    // Double-back press navigation controller
+    var lastBackPressTime by remember { mutableStateOf(0L) }
+    val activity = (context as? Activity)
+    androidx.activity.compose.BackHandler {
+        if (userSelectedTab != "HOME") {
+            // switch back to the home view
+            userSelectedTab = "HOME"
+        } else {
+            val currentTime = System.currentTimeMillis()
+            if (currentTime - lastBackPressTime < 2000) {
+                activity?.finish()
+            } else {
+                lastBackPressTime = currentTime
+                Toast.makeText(context, "اضغط مرة أخرى للخروج من التطبيق", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     // Set default category selected on first load
     LaunchedEffect(categories) {
@@ -588,26 +620,11 @@ fun MainAppScreen() {
                                                 fontSize = 15.sp,
                                                 color = MaterialTheme.colorScheme.primary
                                             )
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                            ) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(8.dp)
-                                                        .background(Color.Green, CircleShape)
-                                                )
-                                                Text(
-                                                    text = "تزامن فوري سحابي 🟢",
-                                                    fontSize = 11.sp,
-                                                    color = Color.LightGray
-                                                )
-                                            }
                                         }
                                     }
 
                                     Row(
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         // 🏠 Home Icon
@@ -620,7 +637,7 @@ fun MainAppScreen() {
                                                 }
                                             },
                                             modifier = Modifier
-                                                .size(38.dp)
+                                                .size(33.dp)
                                                 .background(
                                                     MaterialTheme.colorScheme.surface,
                                                     RoundedCornerShape(8.dp)
@@ -630,7 +647,7 @@ fun MainAppScreen() {
                                                 imageVector = Icons.Default.Home,
                                                 contentDescription = "الرئيسية",
                                                 tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(18.dp)
+                                                modifier = Modifier.size(16.dp)
                                             )
                                         }
 
@@ -638,7 +655,7 @@ fun MainAppScreen() {
                                         IconButton(
                                             onClick = { showLoginDialog = true },
                                             modifier = Modifier
-                                                .size(38.dp)
+                                                .size(33.dp)
                                                 .background(
                                                     MaterialTheme.colorScheme.surface,
                                                     RoundedCornerShape(8.dp)
@@ -648,7 +665,7 @@ fun MainAppScreen() {
                                                 imageVector = Icons.Default.Lock,
                                                 contentDescription = "تسجيل الدخول",
                                                 tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(18.dp)
+                                                modifier = Modifier.size(16.dp)
                                             )
                                         }
 
@@ -656,7 +673,7 @@ fun MainAppScreen() {
                                         IconButton(
                                             onClick = { showRegisterDialog = true },
                                             modifier = Modifier
-                                                .size(38.dp)
+                                                .size(33.dp)
                                                 .background(
                                                     MaterialTheme.colorScheme.surface,
                                                     RoundedCornerShape(8.dp)
@@ -666,7 +683,7 @@ fun MainAppScreen() {
                                                 imageVector = Icons.Default.Person,
                                                 contentDescription = "إنشاء حساب مقدم خدمة",
                                                 tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(18.dp)
+                                                modifier = Modifier.size(16.dp)
                                             )
                                         }
 
@@ -677,7 +694,7 @@ fun MainAppScreen() {
                                                 Toast.makeText(context, if (isArabic) "تم تحويل اللغة إلى العربية" else "Language switched to English", Toast.LENGTH_SHORT).show()
                                             },
                                             modifier = Modifier
-                                                .size(38.dp)
+                                                .size(33.dp)
                                                 .background(
                                                     MaterialTheme.colorScheme.surface,
                                                     RoundedCornerShape(8.dp)
@@ -687,7 +704,7 @@ fun MainAppScreen() {
                                                 imageVector = Icons.Default.Language,
                                                 contentDescription = "تغيير اللغة",
                                                 tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(18.dp)
+                                                modifier = Modifier.size(16.dp)
                                             )
                                         }
 
@@ -698,7 +715,7 @@ fun MainAppScreen() {
                                                 Toast.makeText(context, "تم تحديث البيانات والربط فورياً 🔄", Toast.LENGTH_SHORT).show()
                                             },
                                             modifier = Modifier
-                                                .size(38.dp)
+                                                .size(33.dp)
                                                 .background(
                                                     MaterialTheme.colorScheme.surface,
                                                     RoundedCornerShape(8.dp)
@@ -708,7 +725,7 @@ fun MainAppScreen() {
                                                 imageVector = Icons.Default.Refresh,
                                                 contentDescription = "تحديث الصفحة والبيانات",
                                                 tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(18.dp)
+                                                modifier = Modifier.size(16.dp)
                                             )
                                         }
                                     }
@@ -772,7 +789,7 @@ fun MainAppScreen() {
                                             imageVector = Icons.Default.FactCheck,
                                             contentDescription = "Check Icon",
                                             tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(18.dp)
+                                            modifier = Modifier.size(16.dp)
                                         )
                                         Text(
                                             text = "شروط وضوابط الاستخدام والتقديم للخدمة:",
@@ -857,7 +874,7 @@ fun MainAppScreen() {
                                         modifier = Modifier.padding(bottom = 6.dp)
                                     )
                                     LazyRow(
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
                                         item {
@@ -1044,41 +1061,45 @@ fun MainAppScreen() {
                     // overlays!
                     if (!isOwnerMode && !(loggedInSupervisor != null && isAdminMode)) {
                         // Realtime Floating Support chat widget (synced with Firestore live snapshot!)
-                        FloatingActionChatWidget(
-                            config = configState,
-                            messages = chats,
-                            isExpanded = isChatViewExpanded,
-                            isNameSaved = isNameSavedForChat,
-                            clientName = clientChatName,
-                            draftText = draftChatMessage,
-                            onToggle = { isChatViewExpanded = !isChatViewExpanded },
-                            onNameSave = { name ->
-                                if (name.isNotBlank()) {
-                                    clientChatName = name
-                                    isNameSavedForChat = true
-                                }
-                            },
-                            onDraftChange = { draftChatMessage = it },
-                            onSendMessage = {
-                                if (draftChatMessage.isNotBlank()) {
-                                    val msg = ChatMessage(
-                                        senderName = clientChatName,
-                                        messageText = draftChatMessage,
-                                        isFromAdmin = false
-                                    )
-                                    FirebaseManager.sendChatMessage(msg) {
-                                        draftChatMessage = ""
+                        if (configState.chatIconVisible) {
+                            FloatingActionChatWidget(
+                                config = configState,
+                                messages = chats,
+                                isExpanded = isChatViewExpanded,
+                                isNameSaved = isNameSavedForChat,
+                                clientName = clientChatName,
+                                draftText = draftChatMessage,
+                                onToggle = { isChatViewExpanded = !isChatViewExpanded },
+                                onNameSave = { name ->
+                                    if (name.isNotBlank()) {
+                                        clientChatName = name
+                                        isNameSavedForChat = true
+                                    }
+                                },
+                                onDraftChange = { draftChatMessage = it },
+                                onSendMessage = {
+                                    if (draftChatMessage.isNotBlank()) {
+                                        val msg = ChatMessage(
+                                            senderName = clientChatName,
+                                            messageText = draftChatMessage,
+                                            isFromAdmin = false
+                                        )
+                                        FirebaseManager.sendChatMessage(msg) {
+                                            draftChatMessage = ""
+                                        }
                                     }
                                 }
-                            }
-                        )
+                            )
+                        }
 
                         // Floating AI Assistant Widget
-                        FloatingAIAssistantWidget(
-                            config = configState,
-                            isExpanded = isAIChatViewExpanded,
-                            onToggle = { isAIChatViewExpanded = !isAIChatViewExpanded }
-                        )
+                        if (configState.aiAssistantVisible) {
+                            FloatingAIAssistantWidget(
+                                config = configState,
+                                isExpanded = isAIChatViewExpanded,
+                                onToggle = { isAIChatViewExpanded = !isAIChatViewExpanded }
+                            )
+                        }
                     }
                 }
             }
@@ -2041,7 +2062,7 @@ fun FloatingActionChatWidget(
                                         .fillMaxWidth()
                                         .background(Color.Black.copy(alpha = 0.2f))
                                         .padding(8.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     OutlinedTextField(
@@ -2186,7 +2207,7 @@ fun AdminDashboardViewOld(
 
         // Horizontal Panel Selector
         LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
             val tabs = listOf(
@@ -2297,7 +2318,7 @@ fun AdminDashboardViewOld(
                     
                     // City selector
                     Text("محافظة العمل:", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
                         cities.forEach { city ->
                             Box(
                                 modifier = Modifier
@@ -2589,7 +2610,7 @@ fun AdminDashboardViewOld(
                     Text("تخصيص الهوية والضوابط بالدليلي سحابياً:", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                     
                     Text("اختر ثيم لوحة ألوان المحتوى:", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    val themes = listOf("Classic Dark", "Yemen Red", "Ocean Blue", "luxury Golden")
+                    val themes = listOf("Classic Dark", "Yemen Red", "Ocean Blue", "luxury Golden", "Purple & Teal")
                     themes.forEach { th ->
                         Row(
                             modifier = Modifier
@@ -2790,7 +2811,7 @@ fun OwnerDashboardViewOld(
 
                 // 3. Select theme mode or Custom Colors
                 Text("نوع الثيم لتلوين التطبيق:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                val themes = listOf("Classic Dark", "Yemen Red", "Ocean Blue", "luxury Golden", "Custom Colors")
+                val themes = listOf("Classic Dark", "Yemen Red", "Ocean Blue", "luxury Golden", "Purple & Teal", "Custom Colors")
                 themes.forEach { th ->
                     Row(
                         modifier = Modifier
@@ -2955,32 +2976,53 @@ fun AboutAppScreenView(config: AppConfig, context: Context) {
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text(
-            text = "✨ بوابتك إلى الخدمات المباشرة باليمن ✨",
+            text = config.aboutTitle.ifBlank { "بوابتك إلى الخدمات المباشرة باليمن" },
             style = MaterialTheme.typography.titleLarge,
             color = MaterialTheme.colorScheme.primary,
             textAlign = TextAlign.Center,
             fontWeight = FontWeight.ExtraBold
         )
 
-        // Rounded banner image loaded instantly!
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(180.dp),
-            shape = RoundedCornerShape(16.dp),
-            elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
-        ) {
-            val aboutPainter = if (config.aboutImageUrl.isNotBlank()) {
-                coil.compose.rememberAsyncImagePainter(model = config.aboutImageUrl)
-            } else {
-                coil.compose.rememberAsyncImagePainter(model = "https://images.unsplash.com/photo-1581092921461-eab62e97a780")
+        // Editable component under text: Image or Text substitution!
+        if (config.aboutImageOrTextType == "TEXT") {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                shape = RoundedCornerShape(16.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = config.aboutImageOrTextValue.ifBlank { "تواصل فوري، مباشر وبدون وسيط في كل المحافظات اليمنية ✨" },
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
-            Image(
-                painter = aboutPainter,
-                contentDescription = "About Banner",
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
+        } else {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(180.dp),
+                shape = RoundedCornerShape(16.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+            ) {
+                val bannerSource = config.aboutImageOrTextValue.ifBlank { config.aboutImageUrl.ifBlank { "https://images.unsplash.com/photo-1581092921461-eab62e97a780" } }
+                val aboutPainter = coil.compose.rememberAsyncImagePainter(model = bannerSource)
+                Image(
+                    painter = aboutPainter,
+                    contentDescription = "About Banner",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
         }
 
         // About Description Card
@@ -2991,7 +3033,7 @@ fun AboutAppScreenView(config: AppConfig, context: Context) {
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
-                    text = config.aboutText.ifBlank { "تطبيق دليلي للخدمات اليمنية هو تطبيق متكامل يربط بين المواطن وأفضل الفنيين المؤهلين ومزودي الخدمات في كافة التخصصات والمهن في جميع المحافظات." },
+                    text = config.aboutText.ifBlank { "تطبيق دليلي للخدمات اليمنية هو دليل فني متكامل يجمع أفضل مقدمي الخدمات الفنية والمهنية في مكان واحد." },
                     style = MaterialTheme.typography.bodyLarge,
                     color = Color.White,
                     textAlign = TextAlign.Center,
@@ -3256,7 +3298,7 @@ fun FloatingAIAssistantWidget(
                                 .fillMaxWidth()
                                 .background(Color.Black.copy(alpha = 0.2f))
                                 .padding(8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             OutlinedTextField(

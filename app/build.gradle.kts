@@ -44,7 +44,16 @@ android {
 
     buildTypes {
         release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
+        debug {
             isMinifyEnabled = false
+            isShrinkResources = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -98,3 +107,57 @@ dependencies {
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 }
+
+tasks.register("printApkSize") {
+    doLast {
+        val apkFile = project.rootProject.file(".build-outputs/app-debug.apk")
+        if (apkFile.exists()) {
+            val bytes = apkFile.length()
+            val mb = bytes.toDouble() / (1024.0 * 1024.0)
+            println("=== APK SIZE REPORT ===")
+            println("APK Path: " + apkFile.absolutePath)
+            println(String.format("APK Size: %.2f MB (%d bytes)", mb, bytes))
+            println("=======================")
+        } else {
+            println("=== APK SIZE REPORT ===")
+            println("APK file not found yet. Run an assemble task first.")
+            println("=======================")
+        }
+
+        // Print drawable sizes
+        val drawableDir = project.file("src/main/res/drawable")
+        if (drawableDir.exists() && drawableDir.isDirectory) {
+            println("=== LOCAL DRAWABLES SIZE ===")
+            drawableDir.listFiles()?.forEach { file ->
+                println("${file.name}: ${file.length()} bytes")
+            }
+            println("============================")
+        }
+    }
+}
+
+tasks.register("convertToWebp") {
+    doLast {
+        val srcFile = project.file("src/main/res/drawable/ic_app_foreground_asset.png")
+        val destFile = project.file("src/main/res/drawable/ic_app_foreground_asset.webp")
+        if (srcFile.exists()) {
+            try {
+                val pb = ProcessBuilder("cwebp", "-q", "75", srcFile.absolutePath, "-o", destFile.absolutePath)
+                val process = pb.start()
+                val exitCode = process.waitFor()
+                if (exitCode == 0) {
+                    println("Successfully converted PNG to WebP with 75% quality!")
+                    println("WebP size: ${destFile.length()} bytes")
+                } else {
+                    println("cwebp failed with exit code $exitCode")
+                }
+            } catch (e: Exception) {
+                println("cwebp command not found on host: ${e.message}")
+            }
+        } else {
+            println("Source PNG file not found at: ${srcFile.absolutePath}")
+        }
+    }
+}
+
+

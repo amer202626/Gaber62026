@@ -11,11 +11,10 @@ object FirebaseManager {
     init {
         try {
             val settings = com.google.firebase.firestore.FirebaseFirestoreSettings.Builder()
-                .setPersistenceEnabled(true)
-                .setCacheSizeBytes(com.google.firebase.firestore.FirebaseFirestoreSettings.CACHE_SIZE_UNLIMITED)
+                .setPersistenceEnabled(false)
                 .build()
             db.firestoreSettings = settings
-            Log.d("FirebaseManager", "Firestore offline mode persistent settings successfully applied.")
+            Log.d("FirebaseManager", "Firestore offline storage disabled. Live cloud real-time connections active.")
         } catch (e: Exception) {
             Log.e("FirebaseManager", "Error setting Firestore settings", e)
         }
@@ -30,9 +29,29 @@ object FirebaseManager {
     val config = MutableStateFlow<AppConfig>(AppConfig())
     val citiesList = MutableStateFlow<List<String>>(emptyList())
     val registrationTerms = MutableStateFlow<List<RegistrationTerm>>(emptyList())
+    val lastUpdateTime = MutableStateFlow<Long>(System.currentTimeMillis())
+    val updateCount = MutableStateFlow<Int>(0)
+    val latestPingLatency = MutableStateFlow<Long>(-1L)
+    private var lastSentPingId = ""
 
     private var hasStarted = false
     private val activeListeners = mutableListOf<com.google.firebase.firestore.ListenerRegistration>()
+
+    private fun onTelemetryUpdate() {
+        updateCount.value = updateCount.value + 1
+        lastUpdateTime.value = System.currentTimeMillis()
+    }
+
+    fun sendPing(onComplete: () -> Unit = {}) {
+        val pingId = java.util.UUID.randomUUID().toString()
+        lastSentPingId = pingId
+        val data = mapOf(
+            "id" to pingId,
+            "timestamp" to System.currentTimeMillis()
+        )
+        db.collection("pings").document(pingId).set(data)
+            .addOnSuccessListener { onComplete() }
+    }
 
     fun startListening() {
         // Clear old ones first to prevent duplicates
@@ -49,6 +68,7 @@ object FirebaseManager {
         // 1. Cities
         val l1 = db.collection("cities")
             .addSnapshotListener { snapshot, error ->
+                onTelemetryUpdate()
                 if (error != null) {
                     Log.e("FirebaseManager", "Error listening to cities", error)
                     return@addSnapshotListener
@@ -67,6 +87,7 @@ object FirebaseManager {
         // 2. Config
         val l2 = db.collection("config").document("current_config")
             .addSnapshotListener { snapshot, error ->
+                onTelemetryUpdate()
                 if (error != null) {
                     Log.e("FirebaseManager", "Error listening to config", error)
                     return@addSnapshotListener
@@ -86,6 +107,7 @@ object FirebaseManager {
         val l3 = db.collection("categories")
             .orderBy("displayOrder", Query.Direction.ASCENDING)
             .addSnapshotListener { snapshot, error ->
+                onTelemetryUpdate()
                 if (error != null) {
                     Log.e("FirebaseManager", "Error listening to categories", error)
                     return@addSnapshotListener
@@ -107,6 +129,7 @@ object FirebaseManager {
         val l4 = db.collection("providers")
             .orderBy("timestamp", Query.Direction.DESCENDING)
             .addSnapshotListener { snapshot, error ->
+                onTelemetryUpdate()
                 if (error != null) {
                     Log.e("FirebaseManager", "Error listening to providers", error)
                     return@addSnapshotListener
@@ -127,6 +150,7 @@ object FirebaseManager {
         // 5. Banners
         val l5 = db.collection("banners")
             .addSnapshotListener { snapshot, error ->
+                onTelemetryUpdate()
                 if (error != null) {
                     Log.e("FirebaseManager", "Error listening to banners", error)
                     return@addSnapshotListener
@@ -148,6 +172,7 @@ object FirebaseManager {
         val l6 = db.collection("incidents")
             .orderBy("timestamp", Query.Direction.DESCENDING)
             .addSnapshotListener { snapshot, error ->
+                onTelemetryUpdate()
                 if (error != null) {
                     Log.e("FirebaseManager", "Error listening to incidents", error)
                     return@addSnapshotListener
@@ -164,6 +189,7 @@ object FirebaseManager {
         val l7 = db.collection("chats")
             .orderBy("timestamp", Query.Direction.ASCENDING)
             .addSnapshotListener { snapshot, error ->
+                onTelemetryUpdate()
                 if (error != null) {
                     Log.e("FirebaseManager", "Error listening to chats", error)
                     return@addSnapshotListener
@@ -179,6 +205,7 @@ object FirebaseManager {
         // 8. Supervisors
         val l8 = db.collection("supervisors")
             .addSnapshotListener { snapshot, error ->
+                onTelemetryUpdate()
                 if (error != null) {
                     Log.e("FirebaseManager", "Error listening to supervisors", error)
                     return@addSnapshotListener
@@ -200,6 +227,7 @@ object FirebaseManager {
         val l9 = db.collection("registration_terms")
             .orderBy("order", Query.Direction.ASCENDING)
             .addSnapshotListener { snapshot, error ->
+                onTelemetryUpdate()
                 if (error != null) {
                     Log.e("FirebaseManager", "Error listening to registration terms", error)
                     return@addSnapshotListener
@@ -216,6 +244,30 @@ object FirebaseManager {
                 }
             }
         activeListeners.add(l9)
+
+        // 10. Live Latency and Synchronization Ping Listener
+        val l10 = db.collection("pings")
+            .addSnapshotListener { snapshot, error ->
+                onTelemetryUpdate()
+                if (snapshot != null) {
+                    for (change in snapshot.documentChanges) {
+                        if (change.type == com.google.firebase.firestore.DocumentChange.Type.ADDED ||
+                            change.type == com.google.firebase.firestore.DocumentChange.Type.MODIFIED) {
+                            val doc = change.document
+                            val id = doc.getString("id") ?: ""
+                            if (id == lastSentPingId) {
+                                val sentTime = doc.getLong("timestamp") ?: 0L
+                                if (sentTime > 0) {
+                                    val latency = System.currentTimeMillis() - sentTime
+                                    latestPingLatency.value = latency
+                                    Log.d("FirebaseManager", "Real-time roundtrip synchronization ping successful in $latency ms.")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        activeListeners.add(l10)
     }
 
     fun forceNetworkRefresh() {

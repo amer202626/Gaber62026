@@ -63,8 +63,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        // Start live snapshot listening on Firestore collections
-        FirebaseManager.startListening()
+        // Initialize our Local Offline Sync Manager!
+        FirebaseManager.init(applicationContext)
 
         setContent {
             MainAppScreen()
@@ -96,102 +96,132 @@ fun DalylyTheme(
         }
     }
 
-    val txtColor = parseColor(config.textColorHex, Color.White)
+    val txtColor = if (isSystemDark) parseColor(config.textColorHex, Color.White) else Color.Black
 
     // Theme Colors
-    val colors = when (config.themeType) {
-        "Custom Colors" -> {
-            val primaryColor = parseColor(config.primaryColorHex, Color(0xFFEAA135))
-            val secondaryColor = parseColor(config.secondaryColorHex, Color(0xFF2D2F33))
-            darkColorScheme(
-                primary = primaryColor,
-                secondary = secondaryColor,
-                tertiary = primaryColor,
-                background = Color(0xFF0A0A0A),
-                surface = Color(0xFF151515),
+    val colors = if (!isSystemDark) {
+        // Dynamic Elegant Light Mode Color Scheme mapping
+        val primaryColor = when (config.themeType) {
+            "Yemen Red" -> Color(0xFFCE1126)
+            "Ocean Blue" -> Color(0xFF008B95)
+            "luxury Golden", "الذهبي الفاخر", "الذهبي الفاخر ✨", "Luxury Gold" -> Color(0xFFC59B27)
+            "Cosmic Silver", "كوزميك سيلفر", "كوزميك سيلفر 🌌" -> Color(0xFF5E5E62)
+            "Royal Emerald", "الزمردي الراقي", "الزمردي الراقي 🟢" -> Color(0xFF008D59)
+            "Purple & Teal", "البنفسجي والتيال", "البنفسجي والتيال الكلاسيكي" -> Color(0xFF6200EE)
+            else -> parseColor(config.primaryColorHex, Color(0xFFEAA135))
+        }
+        val secondaryColor = when (config.themeType) {
+            "Yemen Red" -> Color(0xFFE0E0E0)
+            "Ocean Blue" -> Color(0xFFE0ECEF)
+            else -> parseColor(config.secondaryColorHex, Color(0xFFECECEC))
+        }
+        lightColorScheme(
+            primary = primaryColor,
+            secondary = secondaryColor,
+            tertiary = primaryColor,
+            background = Color(0xFFF7F8FA),
+            surface = Color(0xFFFFFFFF),
+            onPrimary = Color.White,
+            onSecondary = Color.Black,
+            onBackground = Color.Black,
+            onSurface = Color.Black
+        )
+    } else {
+        // High-fidelity dark mode mapping
+        when (config.themeType) {
+            "Custom Colors" -> {
+                val primaryColor = parseColor(config.primaryColorHex, Color(0xFFEAA135))
+                val secondaryColor = parseColor(config.secondaryColorHex, Color(0xFF2D2F33))
+                darkColorScheme(
+                    primary = primaryColor,
+                    secondary = secondaryColor,
+                    tertiary = primaryColor,
+                    background = Color(0xFF0A0A0A),
+                    surface = Color(0xFF151515),
+                    onPrimary = Color.Black,
+                    onSecondary = Color.White,
+                    onBackground = txtColor,
+                    onSurface = txtColor
+                )
+            }
+            "Yemen Red" -> darkColorScheme(
+                primary = Color(0xFFCE1126), // Flag Red
+                secondary = Color(0xFF000000), // Flag Black
+                tertiary = Color(0xFFFFFFFF), // White
+                background = Color(0xFF141414),
+                surface = Color(0xFF1F1F1F),
+                onPrimary = Color.White,
+                onSecondary = Color.White,
+                onBackground = txtColor,
+                onSurface = txtColor
+            )
+            "Ocean Blue" -> darkColorScheme(
+                primary = Color(0xFF00ADB5), // Cyan Tech
+                secondary = Color(0xFF393E46), // Dark Slate Grey
+                tertiary = Color(0xFF222831), // Deep Ocean Navy
+                background = Color(0xFF0D1117),
+                surface = Color(0xFF161B22),
+                onPrimary = Color.Black,
+                onSecondary = Color.White,
+                onBackground = txtColor,
+                onSurface = txtColor
+            )
+            "luxury Golden", "الذهبي الفاخر", "الذهبي الفاخر ✨", "Luxury Gold" -> darkColorScheme(
+                primary = Color(0xFFD4AF37), // Metallic Gold
+                secondary = Color(0xFFFFD700), // Bright Gold Accent
+                tertiary = Color(0xFF2C2C2C), // Pitch Grey
+                background = Color(0xFF141414), // Charcoal coal background
+                surface = Color(0xFF1F1F1F), // Charcoal card surface
+                onPrimary = Color.Black,
+                onSecondary = Color.Black,
+                onBackground = txtColor,
+                onSurface = txtColor
+            )
+            "Cosmic Silver", "كوزميك سيلفر", "كوزميك سيلفر 🌌" -> darkColorScheme(
+                primary = Color(0xFFD1D1D6), // Metallic Cosmic Silver
+                secondary = Color(0xFF8E8E93), // Darker Silver Accent
+                tertiary = Color(0xFFC0C0C0),
+                background = Color(0xFF0F0F12), // Eye-safe comfortable deep space slate dark
+                surface = Color(0xFF1C1C1E), // Slate dark card background
+                onPrimary = Color.Black,
+                onSecondary = Color.White,
+                onBackground = txtColor,
+                onSurface = txtColor
+            )
+            "Royal Emerald", "الزمردي الراقي", "الزمردي الراقي 🟢" -> darkColorScheme(
+                primary = Color(0xFF50C878), // Royal Emerald Green
+                secondary = Color(0xFF00A86B), // Majestic deep accent green
+                tertiary = Color(0xFFD4AF37), // Luxury gold touch highlight
+                background = Color(0xFF08120D), // Deep green dark background
+                surface = Color(0xFF102218), // Dark forest card container surface
+                onPrimary = Color.White,
+                onSecondary = Color.White,
+                onBackground = txtColor,
+                onSurface = txtColor
+            )
+            "Purple & Teal", "البنفسجي والتيال", "البنفسجي والتيال الكلاسيكي" -> darkColorScheme(
+                primary = Color(0xFF6200EE), // purple_500
+                secondary = Color(0xFF03DAC5), // teal_200
+                tertiary = Color(0xFF3700B3), // purple_700
+                background = Color(0xFF000000), // black
+                surface = Color(0xFF121212), // dark surface
+                onPrimary = Color(0xFFFFFFFF), // white
+                onSecondary = Color(0xFF000000), // black
+                onBackground = txtColor,
+                onSurface = txtColor
+            )
+            else -> darkColorScheme( // Classic Dark
+                primary = Color(0xFFEAA135), // Golden Orange
+                secondary = Color(0xFF2D2F33), // Warm Grey
+                tertiary = Color(0xFFEAA135),
+                background = Color(0xFF1A1B1F),
+                surface = Color(0xFF232529),
                 onPrimary = Color.Black,
                 onSecondary = Color.White,
                 onBackground = txtColor,
                 onSurface = txtColor
             )
         }
-        "Yemen Red" -> darkColorScheme(
-            primary = Color(0xFFCE1126), // Flag Red
-            secondary = Color(0xFF000000), // Flag Black
-            tertiary = Color(0xFFFFFFFF), // White
-            background = Color(0xFF141414),
-            surface = Color(0xFF1F1F1F),
-            onPrimary = Color.White,
-            onSecondary = Color.White,
-            onBackground = txtColor,
-            onSurface = txtColor
-        )
-        "Ocean Blue" -> darkColorScheme(
-            primary = Color(0xFF00ADB5), // Cyan Tech
-            secondary = Color(0xFF393E46), // Dark Slate Grey
-            tertiary = Color(0xFF222831), // Deep Ocean Navy
-            background = Color(0xFF0D1117),
-            surface = Color(0xFF161B22),
-            onPrimary = Color.Black,
-            onSecondary = Color.White,
-            onBackground = txtColor,
-            onSurface = txtColor
-        )
-        "luxury Golden", "الذهبي الفاخر", "الذهبي الفاخر ✨", "Luxury Gold" -> darkColorScheme(
-            primary = Color(0xFFD4AF37), // Metallic Gold
-            secondary = Color(0xFFFFD700), // Bright Gold Accent
-            tertiary = Color(0xFF2C2C2C), // Pitch Grey
-            background = Color(0xFF141414), // Charcoal coal background
-            surface = Color(0xFF1F1F1F), // Charcoal card surface
-            onPrimary = Color.Black,
-            onSecondary = Color.Black,
-            onBackground = txtColor,
-            onSurface = txtColor
-        )
-        "Cosmic Silver", "كوزميك سيلفر", "كوزميك سيلفر 🌌" -> darkColorScheme(
-            primary = Color(0xFFD1D1D6), // Metallic Cosmic Silver
-            secondary = Color(0xFF8E8E93), // Darker Silver Accent
-            tertiary = Color(0xFFC0C0C0),
-            background = Color(0xFF0F0F12), // Eye-safe comfortable deep space slate dark
-            surface = Color(0xFF1C1C1E), // Slate dark card background
-            onPrimary = Color.Black,
-            onSecondary = Color.White,
-            onBackground = txtColor,
-            onSurface = txtColor
-        )
-        "Royal Emerald", "الزمردي الراقي", "الزمردي الراقي 🟢" -> darkColorScheme(
-            primary = Color(0xFF50C878), // Royal Emerald Green
-            secondary = Color(0xFF00A86B), // Majestic deep accent green
-            tertiary = Color(0xFFD4AF37), // Luxury gold touch highlight
-            background = Color(0xFF08120D), // Deep green dark background
-            surface = Color(0xFF102218), // Dark forest card container surface
-            onPrimary = Color.White,
-            onSecondary = Color.White,
-            onBackground = txtColor,
-            onSurface = txtColor
-        )
-        "Purple & Teal", "البنفسجي والتيال", "البنفسجي والتيال الكلاسيكي" -> darkColorScheme(
-            primary = Color(0xFF6200EE), // purple_500
-            secondary = Color(0xFF03DAC5), // teal_200
-            tertiary = Color(0xFF3700B3), // purple_700
-            background = Color(0xFF000000), // black
-            surface = Color(0xFF121212), // dark surface
-            onPrimary = Color(0xFFFFFFFF), // white
-            onSecondary = Color(0xFF000000), // black
-            onBackground = txtColor,
-            onSurface = txtColor
-        )
-        else -> darkColorScheme( // Classic Dark
-            primary = Color(0xFFEAA135), // Golden Orange
-            secondary = Color(0xFF2D2F33), // Warm Grey
-            tertiary = Color(0xFFEAA135),
-            background = Color(0xFF1A1B1F),
-            surface = Color(0xFF232529),
-            onPrimary = Color.Black,
-            onSecondary = Color.White,
-            onBackground = txtColor,
-            onSurface = txtColor
-        )
     }
 
     val defaultWeight = if (config.fontType == "Normal" || config.fontType == "عادي" || config.fontType == "Default") FontWeight.Normal else FontWeight.Bold
@@ -280,6 +310,7 @@ fun MainAppScreen() {
     var regGender by remember { mutableStateOf("Male") }
     var regPhotoUrl by remember { mutableStateOf("") }
     var regSelfieUrl by remember { mutableStateOf("") }
+    var isRegSubmitting by remember { mutableStateOf(false) }
 
     // Report complaints states
     var activeReportProviderId by remember { mutableStateOf<String?>(null) }
@@ -301,9 +332,13 @@ fun MainAppScreen() {
     var lastBackPressTime by remember { mutableStateOf(0L) }
     val activity = (context as? Activity)
     androidx.activity.compose.BackHandler {
-        if (userSelectedTab != "HOME") {
-            // switch back to the home view
+        if (isOwnerMode || isAdminMode || loggedInSupervisor != null || userSelectedTab != "HOME") {
+            // Correct Back Button behavior: press once to return to main user home screen and exit admin/other screens
+            isOwnerMode = false
+            isAdminMode = false
+            loggedInSupervisor = null
             userSelectedTab = "HOME"
+            Toast.makeText(context, "العودة للشاشة الرئيسية", Toast.LENGTH_SHORT).show()
         } else {
             val currentTime = System.currentTimeMillis()
             if (currentTime - lastBackPressTime < 2000) {
@@ -445,62 +480,64 @@ fun MainAppScreen() {
                                         .padding(horizontal = 14.dp, vertical = 6.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        // Left: About Shortcut Icon (reduced by 50% as requested)
-                                        IconButton(
-                                            onClick = {
-                                                userSelectedTab = if (userSelectedTab == "ABOUT") "HOME" else "ABOUT"
-                                            },
-                                            modifier = Modifier.size(28.dp)
+                                    CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Ltr) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Info,
-                                                contentDescription = "عن التطبيق",
-                                                tint = if (userSelectedTab == "ABOUT") MaterialTheme.colorScheme.primary else Color.Gray,
-                                                modifier = Modifier.size(16.dp) // 50% scale
-                                            )
-                                        }
-
-                                        // Center Footer Text
-                                        Text(
-                                            text = if (configState.footerText.isNotBlank()) configState.footerText else "WAM777644670",
-                                            fontSize = configState.footerFontSize.sp,
-                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
-                                            textAlign = TextAlign.Center,
-                                            modifier = Modifier.weight(1f)
-                                        )
-
-                                        // Right: Floating AI assistant small circle button with "خدمات" label
-                                        Surface(
-                                            modifier = Modifier
-                                                .clip(RoundedCornerShape(20.dp))
-                                                .clickable {
-                                                    isAIChatViewExpanded = !isAIChatViewExpanded
+                                            // Left: About Shortcut Icon (reduced by 50% as requested)
+                                            IconButton(
+                                                onClick = {
+                                                    userSelectedTab = if (userSelectedTab == "ABOUT") "HOME" else "ABOUT"
                                                 },
-                                            color = MaterialTheme.colorScheme.primary,
-                                            contentColor = Color.Black
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                modifier = Modifier.size(28.dp)
                                             ) {
                                                 Icon(
-                                                    imageVector = Icons.Default.SmartToy,
-                                                    contentDescription = "خدمات",
-                                                    modifier = Modifier.size(14.dp),
-                                                    tint = Color.Black
+                                                    imageVector = Icons.Default.Info,
+                                                    contentDescription = "عن التطبيق",
+                                                    tint = if (userSelectedTab == "ABOUT") MaterialTheme.colorScheme.primary else Color.Gray,
+                                                    modifier = Modifier.size(16.dp) // 50% scale
                                                 )
-                                                Text(
-                                                    text = "خدمات",
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = Color.Black
-                                                )
+                                            }
+
+                                            // Center Footer Text
+                                            Text(
+                                                text = if (configState.footerText.isNotBlank()) configState.footerText else "WAM777644670",
+                                                fontSize = configState.footerFontSize.sp,
+                                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
+                                                textAlign = TextAlign.Center,
+                                                modifier = Modifier.weight(1f)
+                                            )
+
+                                            // Right: Floating AI assistant small circle button with "خدمات" label
+                                            Surface(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(20.dp))
+                                                    .clickable {
+                                                        isAIChatViewExpanded = !isAIChatViewExpanded
+                                                    },
+                                                color = MaterialTheme.colorScheme.primary,
+                                                contentColor = Color.Black
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.SmartToy,
+                                                        contentDescription = "خدمات",
+                                                        modifier = Modifier.size(14.dp),
+                                                        tint = Color.Black
+                                                    )
+                                                    Text(
+                                                        text = "خدمات",
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = Color.Black
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -559,6 +596,8 @@ fun MainAppScreen() {
                     } else {
                         if (userSelectedTab == "ABOUT") {
                             AboutAppScreenView(config = configState, context = context)
+                        } else if (userSelectedTab == "OFFERS") {
+                            CommercialOffersScreenView(onBack = { userSelectedTab = "HOME" }, context = context)
                         } else {
                         // Users Directory Screen
                         Column(
@@ -735,6 +774,51 @@ fun MainAppScreen() {
                             // Dynamic sliders / promotional Banner Ads configured by Database
                             if (banners.isNotEmpty()) {
                                 SliderBannersView(banners = banners, context = context)
+                            }
+
+                            if (configState.isOffersSectionEnabled) {
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                                        .clickable { userSelectedTab = "OFFERS" },
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                    ),
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f))
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(14.dp).fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            Text("🛒", fontSize = 24.sp)
+                                            Column {
+                                                Text(
+                                                    text = "قسم العروض التجارية والسلع للبيع",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 14.sp,
+                                                    color = MaterialTheme.colorScheme.primary
+                                                )
+                                                Text(
+                                                    text = "تصفح وشاهد السيارات، العقارات والمعدات المتاحة للبيع باليمن فورا",
+                                                    fontSize = 10.sp,
+                                                    color = Color.LightGray
+                                                )
+                                            }
+                                        }
+                                        Icon(
+                                            imageVector = Icons.Default.ArrowBack,
+                                            contentDescription = "دخول",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
                             }
 
                             if (configState.chatDisabled) {
@@ -1182,8 +1266,8 @@ fun MainAppScreen() {
                                             showLoginDialog = false
                                             
                                             sharedPrefs.edit()
-                                                .putBoolean("is_admin", rememberMeAdmin)
-                                                .putString("logged_supervisor", if (rememberMeAdmin) suName else null)
+                                                .putBoolean("is_admin", true)
+                                                .putString("logged_supervisor", suName)
                                                 .putBoolean("remember_admin", rememberMeAdmin)
                                                 .apply()
 
@@ -1267,7 +1351,7 @@ fun MainAppScreen() {
                                             secretClickCount = 0
                                             
                                             sharedPrefs.edit()
-                                                .putBoolean("is_owner", rememberMeOwner)
+                                                .putBoolean("is_owner", true)
                                                 .putBoolean("remember_owner", rememberMeOwner)
                                                 .apply()
 
@@ -1535,53 +1619,83 @@ fun MainAppScreen() {
 
                             Spacer(modifier = Modifier.height(4.dp))
 
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                TextButton(
-                                    onClick = { showRegisterDialog = false },
-                                    modifier = Modifier.weight(1f)
+                            if (isRegSubmitting) {
+                                Box(
+                                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                    contentAlignment = Alignment.Center
                                 ) {
-                                    Text("إلغاء")
-                                }
-                                Button(
-                                    onClick = {
-                                        if (regName.isEmpty() || regPhone.isEmpty() || regWhatsapp.isEmpty()) {
-                                            Toast.makeText(context, "الرجاء اكمال الحقول الرئيسية", Toast.LENGTH_SHORT).show()
-                                            return@Button
-                                        }
-                                        if (regGender == "Male" && regSelfieUrl.isEmpty()) {
-                                            Toast.makeText(context, "الصورة الذاتية Selfie مطلوبة لمطابقة حسابك الأمني كذكر!", Toast.LENGTH_LONG).show()
-                                             return@Button
-                                        }
-                                        val approvedImmediately = categories.find { it.id == regCategory }?.publishImmediately ?: true
-                                        val newProv = ServiceProvider(
-                                            name = regName,
-                                            phone = regPhone,
-                                            whatsapp = regWhatsapp,
-                                            categoryId = regCategory,
-                                            subCategory = regSubDetails,
-                                            address = regAddress,
-                                            area = regArea,
-                                            isPending = !approvedImmediately, // Pending if publishImmediately is false
-                                            active = approvedImmediately,
-                                            photoUrl = regPhotoUrl,
-                                            selfieUrl = regSelfieUrl,
-                                            gender = regGender
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text(
+                                            text = "جاري تجميع ورفع طلبك وصورك... الرجاء الانتظار ⏳",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            textAlign = TextAlign.Center
                                         )
-                                        FirebaseManager.saveProvider(newProv) {
-                                            Toast.makeText(
-                                                context,
-                                                if (approvedImmediately) "تم تفعيلك ونشر خدماتك فوراً بالصفحة!" else "تم تقديم الطلب للمراجعة والتدقيق الفني!",
-                                                Toast.LENGTH_LONG
-                                            ).show()
-                                            showRegisterDialog = false
-                                        }
-                                    },
-                                    modifier = Modifier.weight(1.5f)
+                                    }
+                                }
+                            } else {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Text("إرسال طلب الانضمام")
+                                    TextButton(
+                                        onClick = { showRegisterDialog = false },
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text("إلغاء")
+                                    }
+                                    Button(
+                                        onClick = {
+                                            if (regName.isEmpty() || regPhone.isEmpty() || regWhatsapp.isEmpty()) {
+                                                Toast.makeText(context, "الرجاء اكمال الحقول الرئيسية", Toast.LENGTH_SHORT).show()
+                                                return@Button
+                                            }
+                                            if (regGender == "Male" && regSelfieUrl.isEmpty()) {
+                                                Toast.makeText(context, "الصورة الذاتية Selfie مطلوبة لمطابقة حسابك الأمني كذكر!", Toast.LENGTH_LONG).show()
+                                                return@Button
+                                            }
+                                            isRegSubmitting = true
+                                            val approvedImmediately = categories.find { it.id == regCategory }?.publishImmediately ?: true
+                                            val newProv = ServiceProvider(
+                                                name = regName,
+                                                phone = regPhone,
+                                                whatsapp = regWhatsapp,
+                                                categoryId = regCategory,
+                                                subCategory = regSubDetails,
+                                                address = regAddress,
+                                                area = regArea,
+                                                isPending = !approvedImmediately, // Pending if publishImmediately is false
+                                                active = approvedImmediately,
+                                                photoUrl = regPhotoUrl,
+                                                selfieUrl = regSelfieUrl,
+                                                gender = regGender
+                                            )
+                                            FirebaseManager.saveProvider(newProv) {
+                                                isRegSubmitting = false
+                                                Toast.makeText(
+                                                    context,
+                                                    if (approvedImmediately) "تم تفعيلك ونشر خدماتك فوراً بالصفحة!" else "تم تقديم الطلب للمراجعة والتدقيق الفني!",
+                                                    Toast.LENGTH_LONG
+                                                ).show()
+                                                // Clear form values to prevent duplicate entries
+                                                regName = ""
+                                                regPhone = ""
+                                                regWhatsapp = ""
+                                                regSubDetails = ""
+                                                regAddress = ""
+                                                regPhotoUrl = ""
+                                                regSelfieUrl = ""
+                                                regGender = "Male"
+                                                showRegisterDialog = false
+                                            }
+                                        },
+                                        modifier = Modifier.weight(1.5f)
+                                    ) {
+                                        Text("إرسال طلب الانضمام")
+                                    }
                                 }
                             }
                         }
@@ -2002,19 +2116,23 @@ fun FloatingActionChatWidget(
                                     verticalArrangement = Arrangement.Center,
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
-                                    Text("أهلاً بك! الرجاء كتابة اسمك الكريم لبدء المحادثة:", fontSize = 11.sp, color = Color.White)
+                                    Text("أهلاً بك! الرجاء كتابة اسمك الكريم لبدء المحادثة:", fontSize = 11.sp, color = if (isSystemInDarkTheme()) Color.White else Color.Black)
                                     Spacer(modifier = Modifier.height(10.dp))
                                     var tempName by remember { mutableStateOf("") }
                                     OutlinedTextField(
                                         value = tempName,
                                         onValueChange = { tempName = it },
-                                        placeholder = { Text("مثال: أمين ردمان") },
+                                        placeholder = { Text("مثال: أمين ردمان", color = if (isSystemInDarkTheme()) Color.LightGray else Color.Gray) },
                                         singleLine = true,
                                         modifier = Modifier.fillMaxWidth(),
-                                        textStyle = androidx.compose.ui.text.TextStyle(color = Color.White),
+                                        textStyle = androidx.compose.ui.text.TextStyle(color = if (isSystemInDarkTheme()) Color.White else Color.Black),
                                         colors = OutlinedTextFieldDefaults.colors(
+                                            focusedTextColor = if (isSystemInDarkTheme()) Color.White else Color.Black,
+                                            unfocusedTextColor = if (isSystemInDarkTheme()) Color.White else Color.Black,
                                             focusedBorderColor = themeColor,
-                                            unfocusedBorderColor = Color.Gray
+                                            unfocusedBorderColor = Color.Gray,
+                                            focusedContainerColor = if (isSystemInDarkTheme()) Color(0xFF1E1E1E) else Color(0xFFF9F9F9),
+                                            unfocusedContainerColor = if (isSystemInDarkTheme()) Color(0xFF1E1E1E) else Color(0xFFF9F9F9)
                                         )
                                     )
                                     Spacer(modifier = Modifier.height(12.dp))
@@ -2050,7 +2168,7 @@ fun FloatingActionChatWidget(
                                                     .padding(8.dp)
                                             ) {
                                                 Text(text = msg.senderName, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = themeColor)
-                                                Text(text = msg.messageText, fontSize = 11.sp, color = Color.White)
+                                                Text(text = msg.messageText, fontSize = 11.sp, color = if (isSystemInDarkTheme()) Color.White else Color.Black)
                                             }
                                         }
                                     }
@@ -2068,18 +2186,24 @@ fun FloatingActionChatWidget(
                                     OutlinedTextField(
                                         value = draftText,
                                         onValueChange = { onDraftChange(it) },
-                                        placeholder = { Text("تفاصيل المشكلة للتحقق...") },
+                                        placeholder = { Text("تفاصيل المشكلة للتحقق...", color = if (isSystemInDarkTheme()) Color.LightGray else Color.Gray) },
                                         modifier = Modifier.weight(1f),
                                         maxLines = 2,
-                                        textStyle = androidx.compose.ui.text.TextStyle(color = Color.White),
+                                        textStyle = androidx.compose.ui.text.TextStyle(color = if (isSystemInDarkTheme()) Color.White else Color.Black),
                                         colors = OutlinedTextFieldDefaults.colors(
+                                            focusedTextColor = if (isSystemInDarkTheme()) Color.White else Color.Black,
+                                            unfocusedTextColor = if (isSystemInDarkTheme()) Color.White else Color.Black,
                                             focusedBorderColor = themeColor,
-                                            unfocusedBorderColor = Color.Gray
+                                            unfocusedBorderColor = Color.Gray,
+                                            focusedContainerColor = if (isSystemInDarkTheme()) Color(0xFF1E1E1E) else Color(0xFFF9F9F9),
+                                            unfocusedContainerColor = if (isSystemInDarkTheme()) Color(0xFF1E1E1E) else Color(0xFFF9F9F9)
                                         )
                                     )
                                     IconButton(
                                         onClick = onSendMessage,
-                                        modifier = Modifier.background(themeColor, CircleShape)
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .background(themeColor, CircleShape)
                                     ) {
                                         Icon(imageVector = Icons.Default.Send, contentDescription = "Send", tint = Color.Black)
                                     }
@@ -2983,7 +3107,7 @@ fun AboutAppScreenView(config: AppConfig, context: Context) {
             fontWeight = FontWeight.ExtraBold
         )
 
-        // Editable component under text: Image or Text substitution!
+        // Editable component under text: Image, Text, or HIDE!
         if (config.aboutImageOrTextType == "TEXT") {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -3006,7 +3130,7 @@ fun AboutAppScreenView(config: AppConfig, context: Context) {
                     )
                 }
             }
-        } else {
+        } else if (config.aboutImageOrTextType == "IMAGE" || config.aboutImageOrTextType.isBlank()) {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -3042,129 +3166,116 @@ fun AboutAppScreenView(config: AppConfig, context: Context) {
             }
         }
 
-        Text(
-            text = "📞 قنوات التواصل والدعم الفني المباشر:",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.primary,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.align(Alignment.Start)
-        )
+        val visibleActions = remember(config.supportPhone, config.supportWhatsapp, config.supportEmail, config.shareUrl) {
+            val list = mutableListOf<String>()
+            if (config.supportPhone.isNotBlank()) list.add("PHONE")
+            if (config.supportWhatsapp.isNotBlank()) list.add("WHATSAPP")
+            if (config.supportEmail.isNotBlank()) list.add("EMAIL")
+            if (config.shareUrl.isNotBlank()) list.add("SHARE")
+            list
+        }
 
-        // Grid of interactive action buttons
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Row(
+        if (visibleActions.isNotEmpty()) {
+            Text(
+                text = "📞 قنوات التواصل والدعم الفني المباشر:",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.align(Alignment.Start)
+            )
+
+            // Grid of interactive action buttons (dynamically sized and shown!)
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Call support
-                Card(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clickable {
-                            try {
-                                val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${config.supportPhone}"))
-                                context.startActivity(intent)
-                            } catch (e: Exception) {
-                                Toast.makeText(context, "فشل فتح تطبيق الاتصال", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp).fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                visibleActions.chunked(2).forEach { rowItems ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Icon(imageVector = Icons.Default.Phone, contentDescription = "Call", tint = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text("اتصال هاتفي", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        Text(config.supportPhone, fontSize = 10.sp, color = Color.Gray)
-                    }
-                }
-
-                // WhatsApp
-                Card(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clickable {
-                            try {
-                                val url = "https://api.whatsapp.com/send?phone=${config.supportWhatsapp}"
-                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                                context.startActivity(intent)
-                            } catch (e: Exception) {
-                                Toast.makeText(context, "فشل فتح تطبيق واتساب", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp).fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(imageVector = Icons.Default.Chat, contentDescription = "WhatsApp", tint = Color.Green)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text("مراسلة واتساب", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        Text(config.supportWhatsapp, fontSize = 10.sp, color = Color.Gray)
-                    }
-                }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                // Email
-                Card(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clickable {
-                            try {
-                                val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:${config.supportEmail}"))
-                                context.startActivity(intent)
-                            } catch (e: Exception) {
-                                Toast.makeText(context, "فشل فتح تطبيق البريد الإلكتروني", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp).fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(imageVector = Icons.Default.Email, contentDescription = "Email", tint = MaterialTheme.colorScheme.secondary)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text("البريد الإلكتروني", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        Text(config.supportEmail.take(15) + "...", fontSize = 9.sp, color = Color.Gray)
-                    }
-                }
-
-                // Share link
-                Card(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clickable {
-                            try {
-                                val intent = Intent(Intent.ACTION_SEND).apply {
-                                    type = "text/plain"
-                                    putExtra(Intent.EXTRA_TEXT, "قم بتحميل تطبيق دليلي للخدمات والصيانة في اليمن الآن وتواصل مع أفضل الفنيين الفوريين سحابياً:\n${config.shareUrl}")
+                        rowItems.forEach { item ->
+                            val cardModifier = Modifier.weight(1f).clickable {
+                                when (item) {
+                                    "PHONE" -> {
+                                        try {
+                                            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${config.supportPhone}"))
+                                            context.startActivity(intent)
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "فشل فتح تطبيق الاتصال", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                    "WHATSAPP" -> {
+                                        try {
+                                            val url = "https://api.whatsapp.com/send?phone=${config.supportWhatsapp}"
+                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                            context.startActivity(intent)
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "فشل فتح تطبيق واتساب", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                    "EMAIL" -> {
+                                        try {
+                                            val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:${config.supportEmail}"))
+                                            context.startActivity(intent)
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "فشل فتح تطبيق البريد الإلكتروني", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                    "SHARE" -> {
+                                        try {
+                                            val intent = Intent(Intent.ACTION_SEND).apply {
+                                                type = "text/plain"
+                                                putExtra(Intent.EXTRA_TEXT, "قم بتحميل تطبيق دليلي للخدمات والصيانة في اليمن الآن وتواصل مع أفضل الفنيين الفوريين سحابياً:\n${config.shareUrl}")
+                                            }
+                                            context.startActivity(Intent.createChooser(intent, "مشاركة التطبيق عبر:"))
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "فشل فتح واجهة المشاركة", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
                                 }
-                                context.startActivity(Intent.createChooser(intent, "مشاركة التطبيق عبر:"))
-                            } catch (e: Exception) {
-                                Toast.makeText(context, "فشل فتح واجهة المشاركة", Toast.LENGTH_SHORT).show()
                             }
-                        },
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp).fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(imageVector = Icons.Default.Share, contentDescription = "Share", tint = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text("مشاركة التطبيق", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        Text("انشر الفائدة", fontSize = 10.sp, color = Color.Gray)
+
+                            Card(
+                                modifier = cardModifier,
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    when (item) {
+                                        "PHONE" -> {
+                                            Icon(imageVector = Icons.Default.Phone, contentDescription = "Call", tint = MaterialTheme.colorScheme.primary)
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text("اتصال هاتفي", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text(config.supportPhone, fontSize = 10.sp, color = Color.Gray)
+                                        }
+                                        "WHATSAPP" -> {
+                                            Icon(imageVector = Icons.Default.Chat, contentDescription = "WhatsApp", tint = Color.Green)
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text("مراسلة واتساب", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text(config.supportWhatsapp, fontSize = 10.sp, color = Color.Gray)
+                                        }
+                                        "EMAIL" -> {
+                                            Icon(imageVector = Icons.Default.Email, contentDescription = "Email", tint = MaterialTheme.colorScheme.secondary)
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text("البريد الإلكتروني", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text(if (config.supportEmail.length > 15) config.supportEmail.take(12) + "..." else config.supportEmail, fontSize = 9.sp, color = Color.Gray)
+                                        }
+                                        "SHARE" -> {
+                                            Icon(imageVector = Icons.Default.Share, contentDescription = "Share", tint = MaterialTheme.colorScheme.primary)
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text("مشاركة التطبيق", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("انشر الفائدة", fontSize = 10.sp, color = Color.Gray)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if (rowItems.size == 1) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
                     }
                 }
             }
@@ -3175,12 +3286,159 @@ fun AboutAppScreenView(config: AppConfig, context: Context) {
 }
 
 @Composable
+fun CommercialOffersScreenView(onBack: () -> Unit, context: Context) {
+    val offersList = FirebaseManager.commercialOffers.collectAsState().value.filter { it.active }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // App Custom Bar
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier
+                    .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+                    .size(40.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ArrowBack,
+                    contentDescription = "الرجوع للرئيسية",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+            Text(
+                text = "العروض التجارية والسلع للبيع 🛒",
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.ExtraBold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.weight(1f)
+            )
+            Spacer(modifier = Modifier.width(40.dp)) // placeholder to balance header
+        }
+
+        if (offersList.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxWidth().height(200.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "ثمة عروض جديدة يتم تجهيزها حالياً باليمن... ترقبونا! ✨",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = Color.LightGray,
+                    textAlign = TextAlign.Center
+                )
+            }
+        } else {
+            offersList.forEach { offer ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.82f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = offer.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+
+                        if (offer.price.isNotBlank()) {
+                            Text(
+                                text = "السعر المقدر: ${offer.price}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                        }
+
+                        if (offer.imageUrl.isNotBlank()) {
+                            AsyncImage(
+                                model = offer.imageUrl,
+                                contentDescription = "صورة العرض",
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(180.dp)
+                                    .clip(RoundedCornerShape(12.dp)),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+
+                        Text(
+                            text = offer.description,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color.White,
+                            lineHeight = 20.sp
+                        )
+
+                        if (offer.contactPhone.isNotBlank()) {
+                            Divider(color = Color.LightGray.copy(alpha = 0.2f), modifier = Modifier.padding(vertical = 4.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Button(
+                                    onClick = {
+                                        try {
+                                            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${offer.contactPhone}"))
+                                            context.startActivity(intent)
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "تعذر تشغيل تطبيق الهاتف", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Icon(imageVector = Icons.Default.Phone, contentDescription = "اتصال", modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("اتصال مباشر", fontSize = 12.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+                                }
+
+                                Button(
+                                    onClick = {
+                                        try {
+                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/${offer.contactPhone}"))
+                                            context.startActivity(intent)
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "تعذر تشغيل تطبيق واتساب", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Text("واتساب 💬", fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun FloatingAIAssistantWidget(
     config: AppConfig,
     isExpanded: Boolean,
     onToggle: () -> Unit
 ) {
-    if (!config.aiAssistantVisible) return
+    if (!config.aiAssistantVisible && !isExpanded) return
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -3276,7 +3534,7 @@ fun FloatingAIAssistantWidget(
                                             .padding(8.dp)
                                     ) {
                                         Text(text = if (isAi) "مساعد دليلي الذكي 🤖" else "أنت", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = themeColor)
-                                        Text(text = msg.messageText, fontSize = 11.sp, color = Color.White)
+                                        Text(text = msg.messageText, fontSize = 11.sp, color = if (isSystemInDarkTheme()) Color.White else Color.Black)
                                     }
                                 }
                             }
@@ -3304,32 +3562,52 @@ fun FloatingAIAssistantWidget(
                             OutlinedTextField(
                                 value = aiDraft,
                                 onValueChange = { aiDraft = it },
-                                placeholder = { Text("اطرح سؤالاً...") },
+                                placeholder = { Text("اطرح سؤالاً...", color = if (isSystemInDarkTheme()) Color.LightGray else Color.Gray) },
                                 modifier = Modifier.weight(1f),
                                 maxLines = 2,
-                                textStyle = androidx.compose.ui.text.TextStyle(color = Color.White),
+                                textStyle = androidx.compose.ui.text.TextStyle(color = if (isSystemInDarkTheme()) Color.White else Color.Black),
                                 colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = if (isSystemInDarkTheme()) Color.White else Color.Black,
+                                    unfocusedTextColor = if (isSystemInDarkTheme()) Color.White else Color.Black,
                                     focusedBorderColor = themeColor,
-                                    unfocusedBorderColor = Color.Gray
+                                    unfocusedBorderColor = Color.Gray,
+                                    focusedContainerColor = if (isSystemInDarkTheme()) Color(0xFF1E1E1E) else Color(0xFFF9F9F9),
+                                    unfocusedContainerColor = if (isSystemInDarkTheme()) Color(0xFF1E1E1E) else Color(0xFFF9F9F9)
                                 )
                             )
                             IconButton(
                                 onClick = {
                                     if (aiDraft.isNotBlank() && !isLoading) {
+                                        isLoading = true
                                         val userMsg = aiDraft
                                         aiMessages = aiMessages + ChatMessage(senderName = "أنت", messageText = userMsg, isFromAdmin = false)
                                         aiDraft = ""
-                                        isLoading = true
                                         scope.launch {
-                                            val response = GeminiHelper.generateResponse(userMsg)
-                                            aiMessages = aiMessages + ChatMessage(senderName = "المساعد الذكي 🤖", messageText = response, isFromAdmin = true)
-                                            isLoading = false
+                                            try {
+                                                val response = GeminiHelper.generateResponse(userMsg)
+                                                // Verify message does not exist already
+                                                if (aiMessages.none { it.senderName == "المساعد الذكي 🤖" && it.messageText == response }) {
+                                                    aiMessages = aiMessages + ChatMessage(senderName = "المساعد الذكي 🤖", messageText = response, isFromAdmin = true)
+                                                }
+                                            } catch (e: Exception) {
+                                                aiMessages = aiMessages + ChatMessage(senderName = "المساعد الذكي 🤖", messageText = "عذراً، حدث خطأ في معالجة طلبك.", isFromAdmin = true)
+                                            } finally {
+                                                isLoading = false
+                                            }
                                         }
                                     }
                                 },
-                                modifier = Modifier.background(themeColor, CircleShape)
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .background(themeColor, CircleShape),
+                                enabled = aiDraft.isNotBlank() && !isLoading
                             ) {
-                                Icon(imageVector = Icons.Default.Send, contentDescription = "Send", tint = Color.Black)
+                                Icon(
+                                    imageVector = Icons.Default.Send, 
+                                    contentDescription = "Send", 
+                                    tint = if (aiDraft.isNotBlank()) Color.Black else Color.Gray,
+                                    modifier = Modifier.size(20.dp)
+                                )
                             }
                         }
                     }
@@ -3337,16 +3615,18 @@ fun FloatingAIAssistantWidget(
             }
 
             // Floating Main Assistant Icon
-            FloatingActionButton(
-                onClick = onToggle,
-                containerColor = themeColor,
-                contentColor = Color.Black,
-                modifier = Modifier.size(config.aiAssistantSize.dp)
-            ) {
-                Icon(
-                    imageVector = if (isExpanded) Icons.Default.Close else Icons.Default.SmartToy,
-                    contentDescription = "AI Assistant"
-                )
+            if (config.aiAssistantVisible) {
+                FloatingActionButton(
+                    onClick = onToggle,
+                    containerColor = themeColor,
+                    contentColor = Color.Black,
+                    modifier = Modifier.size(config.aiAssistantSize.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isExpanded) Icons.Default.Close else Icons.Default.SmartToy,
+                        contentDescription = "AI Assistant"
+                    )
+                }
             }
         }
     }

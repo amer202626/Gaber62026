@@ -157,6 +157,7 @@ fun AdminDashboardView(
         }
         // Allow BOTH owner and supervisors/admins to see Configs (which contains colors, text, and Registration Terms)
         list.add("CONFIGS" to "10. الألوان والخطوط والشروط 🎨📝")
+        list.add("OFFERS_MANAGE" to "11. العروض التجارية والسلع 🛒")
         list
     }
 
@@ -252,6 +253,16 @@ fun AdminDashboardView(
     var stateShareUrl by remember { mutableStateOf(config.shareUrl) }
     var stateChatIconVisible by remember { mutableStateOf(config.chatIconVisible) }
     var stateAiAssistantVisible by remember { mutableStateOf(config.aiAssistantVisible) }
+    var stateOffersSectionEnabled by remember { mutableStateOf(config.isOffersSectionEnabled) }
+
+    // Commercial Offers state variables
+    var editingOfferId by remember { mutableStateOf<String?>(null) }
+    var oTitle by remember { mutableStateOf("") }
+    var oDescription by remember { mutableStateOf("") }
+    var oPrice by remember { mutableStateOf("") }
+    var oImageUrl by remember { mutableStateOf("") }
+    var oContactPhone by remember { mutableStateOf("") }
+    var oActive by remember { mutableStateOf(true) }
 
     var adminChatReplyDraft by remember { mutableStateOf("") }
     var providersSearchQuery by remember { mutableStateOf("") }
@@ -282,6 +293,7 @@ fun AdminDashboardView(
         stateShareUrl = config.shareUrl
         stateChatIconVisible = config.chatIconVisible
         stateAiAssistantVisible = config.aiAssistantVisible
+        stateOffersSectionEnabled = config.isOffersSectionEnabled
     }
 
     Column(
@@ -1219,14 +1231,25 @@ fun AdminDashboardView(
                     TextField(value = stateAboutText, onValueChange = { stateAboutText = it }, label = { Text("النص التعريفي (تطبيق دليلي هو...)") }, modifier = Modifier.fillMaxWidth())
 
                     Text("عرض المكون تحت عنوان الصفحة:", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
                         RadioButton(selected = stateAboutImageOrTextType == "IMAGE", onClick = { stateAboutImageOrTextType = "IMAGE" })
-                        Text("صورة بنر (مسار نت أو ذاكرة)", fontSize = 11.sp)
-                        Spacer(modifier = Modifier.width(16.dp))
+                        Text("صورة بنر", fontSize = 10.sp)
+                        
                         RadioButton(selected = stateAboutImageOrTextType == "TEXT", onClick = { stateAboutImageOrTextType = "TEXT" })
-                        Text("نص تعبيري بديل", fontSize = 11.sp)
+                        Text("نص بديل", fontSize = 10.sp)
+                        
+                        RadioButton(selected = stateAboutImageOrTextType == "HIDE", onClick = { stateAboutImageOrTextType = "HIDE" })
+                        Text("إخفاء بالكامل 🚫", fontSize = 10.sp)
                     }
-                    TextField(value = stateAboutImageOrTextValue, onValueChange = { stateAboutImageOrTextValue = it }, label = { Text(if (stateAboutImageOrTextType == "IMAGE") "رابط الصورة أو مسارها الفعلي" else "النص البديل المعروض") }, modifier = Modifier.fillMaxWidth())
+                    if (stateAboutImageOrTextType != "HIDE") {
+                        TextField(value = stateAboutImageOrTextValue, onValueChange = { stateAboutImageOrTextValue = it }, label = { Text(if (stateAboutImageOrTextType == "IMAGE") "رابط الصورة أو مسارها الفعلي" else "النص البديل المعروض") }, modifier = Modifier.fillMaxWidth())
+                    } else {
+                        Text("تم تعطيل وإخفاء المكون الفرعي من واجهة عن التطبيق.", color = Color.Gray, fontSize = 10.sp)
+                    }
 
                     Spacer(modifier = Modifier.height(4.dp))
                     Text("قنوات الدعم الفني بالصفحة ومشاركة التطبيق:", fontSize = 11.sp, fontWeight = FontWeight.Bold)
@@ -1245,6 +1268,10 @@ fun AdminDashboardView(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = stateAiAssistantVisible, onCheckedChange = { stateAiAssistantVisible = it })
                         Text("تفعيل وإظهار أيقونة مساعد الذكاء الاصطناعي الذكي 🤖", fontSize = 12.sp)
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = stateOffersSectionEnabled, onCheckedChange = { stateOffersSectionEnabled = it })
+                        Text("تفعيل وإظهار قسم خدمات العروض التجارية والسلع للبيع 🛒", fontSize = 12.sp)
                     }
 
                     Spacer(modifier = Modifier.height(4.dp))
@@ -1295,7 +1322,8 @@ fun AdminDashboardView(
                                 supportEmail = stateSupportEmail.trim(),
                                 shareUrl = stateShareUrl.trim(),
                                 chatIconVisible = stateChatIconVisible,
-                                aiAssistantVisible = stateAiAssistantVisible
+                                aiAssistantVisible = stateAiAssistantVisible,
+                                isOffersSectionEnabled = stateOffersSectionEnabled
                             )
                             FirebaseManager.updateConfig(updated) {
                                 Toast.makeText(context, "تم حفظ وضبط الدستور وتعميمه على كل المشتركين فوراً!", Toast.LENGTH_LONG).show()
@@ -1494,7 +1522,153 @@ fun AdminDashboardView(
                     }
                 }
             }
-        }
+
+            "OFFERS_MANAGE" -> {
+                val offersList = FirebaseManager.commercialOffers.collectAsState().value
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = if (editingOfferId == null) "إضافة عرض تجاري أو سلعة للبيع جديدة 🛒" else "تعديل بيانات العرض التجاري 🔄",
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    TextField(value = oTitle, onValueChange = { oTitle = it }, label = { Text("عنوان العرض/السلعة (مثال: منظومة طاقة شمسية للبيع)") }, modifier = Modifier.fillMaxWidth())
+                    TextField(value = oDescription, onValueChange = { oDescription = it }, label = { Text("الوصف التفصيلي والخصائص والضمان") }, modifier = Modifier.fillMaxWidth())
+                    TextField(value = oPrice, onValueChange = { oPrice = it }, label = { Text("السعر بالريال اليمني أو الدولار (مثال: 120,000 ريال)") }, modifier = Modifier.fillMaxWidth())
+                    TextField(value = oImageUrl, onValueChange = { oImageUrl = it }, label = { Text("رابط صورة السلعة/العرض (اختياري)") }, modifier = Modifier.fillMaxWidth())
+                    TextField(value = oContactPhone, onValueChange = { oContactPhone = it }, label = { Text("رقم واتساب أو هاتف للتواصل والشراء") }, modifier = Modifier.fillMaxWidth())
+                    
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = oActive, onCheckedChange = { oActive = it })
+                        Text("عرض نشط للجميع (إلغاء التحديد لإخفائه مؤقتاً) 👁️", fontSize = 11.sp)
+                     }
+
+                     Row(
+                         modifier = Modifier.fillMaxWidth(),
+                         horizontalArrangement = Arrangement.spacedBy(8.dp)
+                     ) {
+                         Button(
+                             onClick = {
+                                 if (oTitle.isBlank() || oDescription.isBlank()) {
+                                     Toast.makeText(context, "الرجاء إدخال العنوان والوصف بدقة!", Toast.LENGTH_SHORT).show()
+                                     return@Button
+                                 }
+                                 val offer = CommercialOffer(
+                                     id = editingOfferId ?: "",
+                                     title = oTitle.trim(),
+                                     description = oDescription.trim(),
+                                     price = oPrice.trim(),
+                                     imageUrl = oImageUrl.trim(),
+                                     contactPhone = oContactPhone.trim(),
+                                     active = oActive
+                                 )
+                                 FirebaseManager.saveCommercialOffer(offer) {
+                                     Toast.makeText(context, "تم حفظ ونشر السلعة/العرض سحابياً بلمح البصر! 🟢", Toast.LENGTH_SHORT).show()
+                                     // Reset fields
+                                     editingOfferId = null
+                                     oTitle = ""
+                                     oDescription = ""
+                                     oPrice = ""
+                                     oImageUrl = ""
+                                     oContactPhone = ""
+                                     oActive = true
+                                 }
+                             },
+                             modifier = Modifier.weight(1.5f)
+                         ) {
+                             Text(if (editingOfferId == null) "حفظ ونشر العرض سحابياً 🚀" else "حفظ التعديلات الحالية 💾")
+                         }
+                         if (editingOfferId != null) {
+                             Button(
+                                 onClick = {
+                                     editingOfferId = null
+                                     oTitle = ""
+                                     oDescription = ""
+                                     oPrice = ""
+                                     oImageUrl = ""
+                                     oContactPhone = ""
+                                     oActive = true
+                                 },
+                                 colors = ButtonDefaults.buttonColors(containerColor = Color.Gray),
+                                 modifier = Modifier.weight(1f)
+                             ) {
+                                 Text("إلغاء")
+                             }
+                         }
+                     }
+
+                     Spacer(modifier = Modifier.height(10.dp))
+                     Text("العروض والسلع المدرجة حالياً في الدليل السحابي:", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                     if (offersList.isEmpty()) {
+                         Text("لا توجد عروض أو سلع معروضة حالياً.", fontSize = 11.sp, color = Color.Gray)
+                     } else {
+                         offersList.forEach { offer ->
+                             Card(
+                                 modifier = Modifier.fillMaxWidth(),
+                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                             ) {
+                                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                     Row(
+                                         modifier = Modifier.fillMaxWidth(),
+                                         horizontalArrangement = Arrangement.SpaceBetween,
+                                         verticalAlignment = Alignment.CenterVertically
+                                     ) {
+                                         Text(offer.title, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                         Text(if (offer.active) "نشط ومتاح 🟢" else "مخفي ومحجوب 🚫", fontSize = 10.sp, color = if (offer.active) Color.Green else Color.Red)
+                                     }
+                                     if (offer.price.isNotBlank()) {
+                                         Text("السعر: ${offer.price}", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                                     }
+                                     Text(offer.description, fontSize = 11.sp)
+                                     if (offer.imageUrl.isNotBlank()) {
+                                         AsyncImage(
+                                             model = offer.imageUrl,
+                                             contentDescription = "Offer image",
+                                             modifier = Modifier.fillMaxWidth().height(120.dp).clip(RoundedCornerShape(8.dp)),
+                                             contentScale = ContentScale.Crop
+                                         )
+                                     }
+                                     if (offer.contactPhone.isNotBlank()) {
+                                         Text("هاتف التواصل: ${offer.contactPhone}", fontSize = 11.sp, color = Color.LightGray)
+                                     }
+                                     
+                                     Row(
+                                         modifier = Modifier.fillMaxWidth(),
+                                         horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                     ) {
+                                         Button(
+                                             onClick = {
+                                                 editingOfferId = offer.id
+                                                 oTitle = offer.title
+                                                 oDescription = offer.description
+                                                 oPrice = offer.price
+                                                 oImageUrl = offer.imageUrl
+                                                 oContactPhone = offer.contactPhone
+                                                 oActive = offer.active
+                                             },
+                                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                             modifier = Modifier.weight(1f)
+                                         ) {
+                                             Text("تعديل ✍️", fontSize = 10.sp, color = Color.Black)
+                                         }
+                                         Button(
+                                             onClick = {
+                                                 FirebaseManager.deleteCommercialOffer(offer.id) {
+                                                     Toast.makeText(context, "تم حذف السلعة من الخدمة السحابية فوراً!", Toast.LENGTH_SHORT).show()
+                                                 }
+                                             },
+                                             colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
+                                             modifier = Modifier.weight(1f)
+                                         ) {
+                                             Text("حذف ❌", fontSize = 10.sp, color = Color.White)
+                                         }
+                                     }
+                                 }
+                             }
+                         }
+                     }
+                 }
+             }
+         }
     }
 
     // Edit Term Dialog

@@ -1,24 +1,16 @@
 package com.dalyly
 
+import android.content.Context
 import android.util.Log
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.flow.MutableStateFlow
+import java.util.UUID
 
 object FirebaseManager {
-    private val db by lazy { FirebaseFirestore.getInstance() }
-
-    init {
-        try {
-            val settings = com.google.firebase.firestore.FirebaseFirestoreSettings.Builder()
-                .setPersistenceEnabled(false)
-                .build()
-            db.firestoreSettings = settings
-            Log.d("FirebaseManager", "Firestore offline storage disabled. Live cloud real-time connections active.")
-        } catch (e: Exception) {
-            Log.e("FirebaseManager", "Error setting Firestore settings", e)
-        }
-    }
+    private var isInitialized = false
+    private val db: FirebaseFirestore by lazy { FirebaseFirestore.getInstance() }
+    private val activeListeners = mutableListOf<ListenerRegistration>()
 
     val categories = MutableStateFlow<List<ServiceCategory>>(emptyList())
     val providers = MutableStateFlow<List<ServiceProvider>>(emptyList())
@@ -29,439 +21,512 @@ object FirebaseManager {
     val config = MutableStateFlow<AppConfig>(AppConfig())
     val citiesList = MutableStateFlow<List<String>>(emptyList())
     val registrationTerms = MutableStateFlow<List<RegistrationTerm>>(emptyList())
+    val commercialOffers = MutableStateFlow<List<CommercialOffer>>(emptyList())
     val lastUpdateTime = MutableStateFlow<Long>(System.currentTimeMillis())
     val updateCount = MutableStateFlow<Int>(0)
     val latestPingLatency = MutableStateFlow<Long>(-1L)
-    private var lastSentPingId = ""
-
-    private var hasStarted = false
-    private val activeListeners = mutableListOf<com.google.firebase.firestore.ListenerRegistration>()
 
     private fun onTelemetryUpdate() {
         updateCount.value = updateCount.value + 1
         lastUpdateTime.value = System.currentTimeMillis()
     }
 
+    fun init(context: Context) {
+        if (!isInitialized) {
+            isInitialized = true
+            
+            // Set Firestore offline persistence settings
+            try {
+                val settings = com.google.firebase.firestore.FirebaseFirestoreSettings.Builder()
+                    .setPersistenceEnabled(true) // Enabled for robust offline caching and seamless transitions without stuttering
+                    .build()
+                db.setFirestoreSettings(settings)
+                Log.d("FirebaseManager", "Firestore cache priority and persistence enabled.")
+            } catch (e: Exception) {
+                Log.e("FirebaseManager", "Error setting Firestore settings", e)
+            }
+            
+            startListening()
+        }
+    }
+
     fun sendPing(onComplete: () -> Unit = {}) {
-        val pingId = java.util.UUID.randomUUID().toString()
-        lastSentPingId = pingId
-        val data = mapOf(
-            "id" to pingId,
-            "timestamp" to System.currentTimeMillis()
-        )
-        db.collection("pings").document(pingId).set(data)
-            .addOnSuccessListener { onComplete() }
+        val start = System.currentTimeMillis()
+        db.collection("config").document("ping_test").set(mapOf("time" to start))
+            .addOnCompleteListener {
+                val end = System.currentTimeMillis()
+                latestPingLatency.value = end - start
+                onTelemetryUpdate()
+                onComplete()
+            }
+    }
+
+    fun forceNetworkRefresh() {
+        Log.d("FirebaseManager", "Force network reconnection triggered. Rebinding listeners...")
+        activeListeners.forEach { it.remove() }
+        activeListeners.clear()
+        startListening()
     }
 
     fun startListening() {
-        // Clear old ones first to prevent duplicates
-        synchronized(activeListeners) {
-            for (listener in activeListeners) {
-                listener.remove()
-            }
-            activeListeners.clear()
-        }
+        if (activeListeners.isNotEmpty()) return
 
-        hasStarted = true
         Log.d("FirebaseManager", "Starting live Firestore sync snapshot listeners...")
 
-        // 1. Cities
-        val l1 = db.collection("cities")
+        // 1. Config
+        val configListener = db.collection("config").document("current_config")
             .addSnapshotListener { snapshot, error ->
-                onTelemetryUpdate()
+                if (error != null) {
+                    Log.e("FirebaseManager", "Error listening to config", error)
+                    return@addSnapshotListener
+                }
+                if (snapshot != null) {
+                    if (snapshot.exists()) {
+                        val c = snapshot.toObject(AppConfig::class.java)
+                        if (c != null) {
+                            config.value = c
+                            onTelemetryUpdate()
+                        }
+                    } else {
+                        // Bootstrap default config if not found online
+                        val defaultConf = AppConfig()
+                        db.collection("config").document("current_config").set(defaultConf)
+                            .addOnSuccessListener {
+                                Log.d("FirebaseManager", "Bootstrapped config in cloud Firestore.")
+                            }
+                    }
+                }
+            }
+        activeListeners.add(configListener)
+
+        // 2. Cities
+        val citiesListener = db.collection("cities")
+            .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     Log.e("FirebaseManager", "Error listening to cities", error)
                     return@addSnapshotListener
                 }
                 if (snapshot != null) {
-                    val list = snapshot.documents.mapNotNull { it.getString("nameAr") }
+                    val list = snapshot.documents.map { it.id }
                     if (list.isEmpty()) {
-                        seedCities()
+                        bootstrapCities()
                     } else {
                         citiesList.value = list
+                        onTelemetryUpdate()
                     }
                 }
             }
-        activeListeners.add(l1)
-
-        // 2. Config
-        val l2 = db.collection("config").document("current_config")
-            .addSnapshotListener { snapshot, error ->
-                onTelemetryUpdate()
-                if (error != null) {
-                    Log.e("FirebaseManager", "Error listening to config", error)
-                    return@addSnapshotListener
-                }
-                if (snapshot != null && snapshot.exists()) {
-                    val current = snapshot.toObject(AppConfig::class.java)
-                    if (current != null) {
-                        config.value = current
-                    }
-                } else {
-                    db.collection("config").document("current_config").set(AppConfig())
-                }
-            }
-        activeListeners.add(l2)
+        activeListeners.add(citiesListener)
 
         // 3. Categories
-        val l3 = db.collection("categories")
-            .orderBy("displayOrder", Query.Direction.ASCENDING)
+        val catsListener = db.collection("categories")
             .addSnapshotListener { snapshot, error ->
-                onTelemetryUpdate()
                 if (error != null) {
                     Log.e("FirebaseManager", "Error listening to categories", error)
                     return@addSnapshotListener
                 }
                 if (snapshot != null) {
-                    val list = snapshot.documents.mapNotNull { doc ->
-                        doc.toObject(ServiceCategory::class.java)?.copy(id = doc.id)
-                    }
+                    val list = snapshot.documents.mapNotNull { it.toObject(ServiceCategory::class.java) }
                     if (list.isEmpty()) {
-                        seedCategories()
+                        bootstrapCategories()
                     } else {
-                        categories.value = list
+                        categories.value = list.sortedBy { it.displayOrder }
+                        onTelemetryUpdate()
                     }
                 }
             }
-        activeListeners.add(l3)
+        activeListeners.add(catsListener)
 
         // 4. Providers
-        val l4 = db.collection("providers")
-            .orderBy("timestamp", Query.Direction.DESCENDING)
+        val provsListener = db.collection("providers")
             .addSnapshotListener { snapshot, error ->
-                onTelemetryUpdate()
                 if (error != null) {
                     Log.e("FirebaseManager", "Error listening to providers", error)
                     return@addSnapshotListener
                 }
                 if (snapshot != null) {
-                    val list = snapshot.documents.mapNotNull { doc ->
-                        doc.toObject(ServiceProvider::class.java)?.copy(id = doc.id)
-                    }
-                    if (list.isEmpty()) {
-                        seedProviders()
-                    } else {
-                        providers.value = list
-                    }
+                    val list = snapshot.documents.mapNotNull { it.toObject(ServiceProvider::class.java) }
+                    providers.value = list.sortedByDescending { it.timestamp }
+                    onTelemetryUpdate()
                 }
             }
-        activeListeners.add(l4)
+        activeListeners.add(provsListener)
 
         // 5. Banners
-        val l5 = db.collection("banners")
+        val bannersListener = db.collection("banners")
             .addSnapshotListener { snapshot, error ->
-                onTelemetryUpdate()
                 if (error != null) {
                     Log.e("FirebaseManager", "Error listening to banners", error)
                     return@addSnapshotListener
                 }
                 if (snapshot != null) {
-                    val list = snapshot.documents.mapNotNull { doc ->
-                        doc.toObject(BannerAd::class.java)?.copy(id = doc.id)
-                    }
-                    if (list.isEmpty()) {
-                        seedBanners()
-                    } else {
-                        banners.value = list
-                    }
+                    val list = snapshot.documents.mapNotNull { it.toObject(BannerAd::class.java) }
+                    banners.value = list
+                    onTelemetryUpdate()
                 }
             }
-        activeListeners.add(l5)
+        activeListeners.add(bannersListener)
 
         // 6. Incidents
-        val l6 = db.collection("incidents")
-            .orderBy("timestamp", Query.Direction.DESCENDING)
+        val incidentsListener = db.collection("incidents")
             .addSnapshotListener { snapshot, error ->
-                onTelemetryUpdate()
                 if (error != null) {
                     Log.e("FirebaseManager", "Error listening to incidents", error)
                     return@addSnapshotListener
                 }
                 if (snapshot != null) {
-                    incidents.value = snapshot.documents.mapNotNull { doc ->
-                        doc.toObject(IncidentReport::class.java)?.copy(id = doc.id)
-                    }
+                    val list = snapshot.documents.mapNotNull { it.toObject(IncidentReport::class.java) }
+                    incidents.value = list.sortedBy { it.timestamp }
+                    onTelemetryUpdate()
                 }
             }
-        activeListeners.add(l6)
+        activeListeners.add(incidentsListener)
 
         // 7. Chats
-        val l7 = db.collection("chats")
-            .orderBy("timestamp", Query.Direction.ASCENDING)
+        val chatsListener = db.collection("chats")
             .addSnapshotListener { snapshot, error ->
-                onTelemetryUpdate()
                 if (error != null) {
                     Log.e("FirebaseManager", "Error listening to chats", error)
                     return@addSnapshotListener
                 }
                 if (snapshot != null) {
-                    chats.value = snapshot.documents.mapNotNull { doc ->
-                        doc.toObject(ChatMessage::class.java)?.copy(id = doc.id)
-                    }
+                    val list = snapshot.documents.mapNotNull { it.toObject(ChatMessage::class.java) }
+                    chats.value = list.sortedBy { it.timestamp }
+                    onTelemetryUpdate()
                 }
             }
-        activeListeners.add(l7)
+        activeListeners.add(chatsListener)
 
         // 8. Supervisors
-        val l8 = db.collection("supervisors")
+        val supervisorsListener = db.collection("supervisors")
             .addSnapshotListener { snapshot, error ->
-                onTelemetryUpdate()
                 if (error != null) {
                     Log.e("FirebaseManager", "Error listening to supervisors", error)
                     return@addSnapshotListener
                 }
                 if (snapshot != null) {
-                    val list = snapshot.documents.mapNotNull { doc ->
-                        doc.toObject(Moderator::class.java)?.copy(id = doc.id)
-                    }
+                    val list = snapshot.documents.mapNotNull { it.toObject(Moderator::class.java) }
                     if (list.isEmpty()) {
-                        seedSupervisors()
+                        bootstrapSupervisors()
                     } else {
                         supervisors.value = list
+                        onTelemetryUpdate()
                     }
                 }
             }
-        activeListeners.add(l8)
+        activeListeners.add(supervisorsListener)
 
         // 9. Registration Terms
-        val l9 = db.collection("registration_terms")
-            .orderBy("order", Query.Direction.ASCENDING)
+        val termsListener = db.collection("registration_terms")
             .addSnapshotListener { snapshot, error ->
-                onTelemetryUpdate()
                 if (error != null) {
                     Log.e("FirebaseManager", "Error listening to registration terms", error)
                     return@addSnapshotListener
                 }
                 if (snapshot != null) {
-                    val list = snapshot.documents.mapNotNull { doc ->
-                        doc.toObject(RegistrationTerm::class.java)?.copy(id = doc.id)
-                    }
+                    val list = snapshot.documents.mapNotNull { it.toObject(RegistrationTerm::class.java) }
                     if (list.isEmpty()) {
-                        seedRegistrationTerms()
+                        bootstrapTerms()
                     } else {
-                        registrationTerms.value = list
+                        registrationTerms.value = list.sortedBy { it.order }
+                        onTelemetryUpdate()
                     }
                 }
             }
-        activeListeners.add(l9)
+        activeListeners.add(termsListener)
 
-        // 10. Live Latency and Synchronization Ping Listener
-        val l10 = db.collection("pings")
+        // 10. Commercial Offers
+        val offersListener = db.collection("commercial_offers")
             .addSnapshotListener { snapshot, error ->
-                onTelemetryUpdate()
+                if (error != null) {
+                    Log.e("FirebaseManager", "Error listening to commercial_offers", error)
+                    return@addSnapshotListener
+                }
                 if (snapshot != null) {
-                    for (change in snapshot.documentChanges) {
-                        if (change.type == com.google.firebase.firestore.DocumentChange.Type.ADDED ||
-                            change.type == com.google.firebase.firestore.DocumentChange.Type.MODIFIED) {
-                            val doc = change.document
-                            val id = doc.getString("id") ?: ""
-                            if (id == lastSentPingId) {
-                                val sentTime = doc.getLong("timestamp") ?: 0L
-                                if (sentTime > 0) {
-                                    val latency = System.currentTimeMillis() - sentTime
-                                    latestPingLatency.value = latency
-                                    Log.d("FirebaseManager", "Real-time roundtrip synchronization ping successful in $latency ms.")
-                                }
-                            }
-                        }
-                    }
+                    val list = snapshot.documents.mapNotNull { it.toObject(CommercialOffer::class.java) }
+                    commercialOffers.value = list.sortedByDescending { it.timestamp }
+                    onTelemetryUpdate()
                 }
             }
-        activeListeners.add(l10)
+        activeListeners.add(offersListener)
     }
 
-    fun forceNetworkRefresh() {
-        Log.d("FirebaseManager", "Force network reconnection triggered. Rebinding listeners...")
-        startListening()
+    // ================== CLOUD SEEDING ON EMPTY STATE ==================
+
+    private fun bootstrapCities() {
+        val defaultCities = listOf("صنعاء", "عدن", "تعز", "إب", "حضرموت", "الحديدة", "ذمار")
+        defaultCities.forEach { city ->
+            db.collection("cities").document(city).set(mapOf("nameAr" to city, "nameEn" to city))
+        }
     }
 
-    // ================== MUTATION METHODS ==================
+    private fun bootstrapCategories() {
+        val defaultCats = listOf(
+            ServiceCategory("cat_solar", "طاقة شمسية وكهرباء", "Solar Energy & Electricity", "⚡", true, 0),
+            ServiceCategory("cat_mobile", "برمجة وصيانة هواتف", "Software & Mobile Services", "📱", true, 1),
+            ServiceCategory("cat_plumbing", "سباكة وتمديدات", "Plumbing Services", "🚰", true, 2),
+            ServiceCategory("cat_cleaning", "نظافة وصيانة منزلية", "Cleaning & Home Repair", "🧹", true, 3),
+            ServiceCategory("cat_cars", "صيانة سيارات وميكانيك", "Car Maintenance & Repair", "🚗", true, 4)
+        )
+        defaultCats.forEach { cat ->
+            db.collection("categories").document(cat.id).set(cat)
+        }
+    }
+
+    private fun bootstrapSupervisors() {
+        val defaultSupervisors = listOf(
+            Moderator("mod_admin_main", "admin", "admin2026"),
+            Moderator("mod_ali_main", "ali", "1234")
+        )
+        defaultSupervisors.forEach { mod ->
+            db.collection("supervisors").document(mod.id).set(mod)
+        }
+    }
+
+    private fun bootstrapTerms() {
+        val defaultTerms = listOf(
+            RegistrationTerm("term_1", "الالتزام بالمعايير الفنية والمهنية باليمن والمحافظة على أمانة العمل.", 0, true),
+            RegistrationTerm("term_2", "عدم تحصيل أي مبالغ إضافية أو رسوم تفوق السعر المتفق عليه بالدليل.", 1, true),
+            RegistrationTerm("term_3", "تحمل المسؤولية الكاملة القانونية والأخلاقية عن أي خلل ناتج عن سوء تقديم الخدمة.", 2, true)
+        )
+        defaultTerms.forEach { term ->
+            db.collection("registration_terms").document(term.id).set(term)
+        }
+    }
+
+    // ================== CLOUD MUTATIONS ==================
 
     fun updateConfig(newConfig: AppConfig, onComplete: () -> Unit = {}) {
-        db.collection("config").document("current_config")
-            .set(newConfig)
-            .addOnSuccessListener { onComplete() }
+        db.collection("config").document("current_config").set(newConfig)
+            .addOnSuccessListener {
+                config.value = newConfig
+                onTelemetryUpdate()
+                onComplete()
+            }
+            .addOnFailureListener {
+                onComplete()
+            }
     }
 
     fun saveCategory(category: ServiceCategory, onComplete: () -> Unit = {}) {
-        if (category.id.isEmpty()) {
-            db.collection("categories").add(category)
-                .addOnSuccessListener { onComplete() }
-        } else {
-            db.collection("categories").document(category.id).set(category)
-                .addOnSuccessListener { onComplete() }
-        }
+        val targetId = if (category.id.isEmpty()) UUID.randomUUID().toString() else category.id
+        val target = category.copy(id = targetId)
+        db.collection("categories").document(targetId).set(target)
+            .addOnSuccessListener {
+                onTelemetryUpdate()
+                onComplete()
+            }
+            .addOnFailureListener {
+                onComplete()
+            }
     }
 
     fun deleteCategory(id: String, onComplete: () -> Unit = {}) {
         db.collection("categories").document(id).delete()
-            .addOnSuccessListener { onComplete() }
+            .addOnSuccessListener {
+                onTelemetryUpdate()
+                onComplete()
+            }
+            .addOnFailureListener {
+                onComplete()
+            }
     }
 
     fun saveProvider(provider: ServiceProvider, onComplete: () -> Unit = {}) {
-        if (provider.id.isEmpty()) {
-            db.collection("providers").add(provider)
-                .addOnSuccessListener { onComplete() }
-        } else {
-            db.collection("providers").document(provider.id).set(provider)
-                .addOnSuccessListener { onComplete() }
-        }
+        val targetId = if (provider.id.isEmpty()) UUID.randomUUID().toString() else provider.id
+        val target = provider.copy(id = targetId)
+        db.collection("providers").document(targetId).set(target)
+            .addOnSuccessListener {
+                onTelemetryUpdate()
+                onComplete()
+            }
+            .addOnFailureListener {
+                onComplete()
+            }
     }
 
     fun deleteProvider(id: String, onComplete: () -> Unit = {}) {
         db.collection("providers").document(id).delete()
-            .addOnSuccessListener { onComplete() }
+            .addOnSuccessListener {
+                onTelemetryUpdate()
+                onComplete()
+            }
+            .addOnFailureListener {
+                onComplete()
+            }
     }
 
     fun saveBanner(banner: BannerAd, onComplete: () -> Unit = {}) {
-        if (banner.id.isEmpty()) {
-            db.collection("banners").add(banner)
-                .addOnSuccessListener { onComplete() }
-        } else {
-            db.collection("banners").document(banner.id).set(banner)
-                .addOnSuccessListener { onComplete() }
-        }
+        val targetId = if (banner.id.isEmpty()) UUID.randomUUID().toString() else banner.id
+        val target = banner.copy(id = targetId)
+        db.collection("banners").document(targetId).set(target)
+            .addOnSuccessListener {
+                onTelemetryUpdate()
+                onComplete()
+            }
+            .addOnFailureListener {
+                onComplete()
+            }
     }
 
     fun deleteBanner(id: String, onComplete: () -> Unit = {}) {
         db.collection("banners").document(id).delete()
-            .addOnSuccessListener { onComplete() }
+            .addOnSuccessListener {
+                onTelemetryUpdate()
+                onComplete()
+            }
+            .addOnFailureListener {
+                onComplete()
+            }
     }
 
     fun saveIncident(report: IncidentReport, onComplete: () -> Unit = {}) {
-        if (report.id.isEmpty()) {
-            db.collection("incidents").add(report)
-                .addOnSuccessListener { onComplete() }
-        } else {
-            db.collection("incidents").document(report.id).set(report)
-                .addOnSuccessListener { onComplete() }
-        }
+        val targetId = if (report.id.isEmpty()) UUID.randomUUID().toString() else report.id
+        val target = report.copy(id = targetId)
+        db.collection("incidents").document(targetId).set(target)
+            .addOnSuccessListener {
+                onTelemetryUpdate()
+                onComplete()
+            }
+            .addOnFailureListener {
+                onComplete()
+            }
     }
 
     fun deleteIncident(id: String, onComplete: () -> Unit = {}) {
         db.collection("incidents").document(id).delete()
-            .addOnSuccessListener { onComplete() }
+            .addOnSuccessListener {
+                onTelemetryUpdate()
+                onComplete()
+            }
+            .addOnFailureListener {
+                onComplete()
+            }
     }
 
     fun sendChatMessage(msg: ChatMessage, onComplete: () -> Unit = {}) {
-        db.collection("chats").add(msg)
-            .addOnSuccessListener { onComplete() }
+        val targetId = if (msg.id.isEmpty()) UUID.randomUUID().toString() else msg.id
+        val targetMsgId = if (msg.messageId.isEmpty()) UUID.randomUUID().toString() else msg.messageId
+        val target = msg.copy(id = targetId, messageId = targetMsgId)
+        db.collection("chats").document(targetId).set(target)
+            .addOnSuccessListener {
+                onTelemetryUpdate()
+                onComplete()
+            }
+            .addOnFailureListener {
+                onComplete()
+            }
     }
 
     fun clearChats(onComplete: () -> Unit = {}) {
-        db.collection("chats").get().addOnSuccessListener { snapshot ->
-            val batch = db.batch()
-            for (doc in snapshot.documents) {
-                batch.delete(doc.reference)
+        db.collection("chats").get()
+            .addOnSuccessListener { snapshot ->
+                val batch = db.batch()
+                snapshot.documents.forEach { doc ->
+                    batch.delete(doc.reference)
+                }
+                batch.commit().addOnCompleteListener {
+                    onTelemetryUpdate()
+                    onComplete()
+                }
             }
-            batch.commit().addOnSuccessListener { onComplete() }
-        }
+            .addOnFailureListener {
+                onComplete()
+            }
     }
 
     fun saveSupervisor(mod: Moderator, onComplete: () -> Unit = {}) {
-        if (mod.id.isEmpty()) {
-            db.collection("supervisors").add(mod)
-                .addOnSuccessListener { onComplete() }
-        } else {
-            db.collection("supervisors").document(mod.id).set(mod)
-                .addOnSuccessListener { onComplete() }
-        }
+        val targetId = if (mod.id.isEmpty()) UUID.randomUUID().toString() else mod.id
+        val target = mod.copy(id = targetId)
+        db.collection("supervisors").document(targetId).set(target)
+            .addOnSuccessListener {
+                onTelemetryUpdate()
+                onComplete()
+            }
+            .addOnFailureListener {
+                onComplete()
+            }
     }
 
     fun deleteSupervisor(id: String, onComplete: () -> Unit = {}) {
         db.collection("supervisors").document(id).delete()
-            .addOnSuccessListener { onComplete() }
+            .addOnSuccessListener {
+                onTelemetryUpdate()
+                onComplete()
+            }
+            .addOnFailureListener {
+                onComplete()
+            }
     }
 
     fun saveCity(cityAr: String, cityEn: String, onComplete: () -> Unit = {}) {
-        db.collection("cities").add(mapOf("nameAr" to cityAr, "nameEn" to cityEn))
-            .addOnSuccessListener { onComplete() }
+        val cityData = mapOf("nameAr" to cityAr, "nameEn" to cityEn)
+        db.collection("cities").document(cityAr).set(cityData)
+            .addOnSuccessListener {
+                onTelemetryUpdate()
+                onComplete()
+            }
+            .addOnFailureListener {
+                onComplete()
+            }
     }
 
     fun deleteCity(cityName: String, onComplete: () -> Unit = {}) {
-        db.collection("cities").whereEqualTo("nameAr", cityName).get()
-            .addOnSuccessListener { snapshot ->
-                val batch = db.batch()
-                for (doc in snapshot.documents) {
-                    batch.delete(doc.reference)
-                }
-                batch.commit().addOnSuccessListener { onComplete() }
+        db.collection("cities").document(cityName).delete()
+            .addOnSuccessListener {
+                onTelemetryUpdate()
+                onComplete()
+            }
+            .addOnFailureListener {
+                onComplete()
             }
     }
 
     fun saveRegistrationTerm(term: RegistrationTerm, onComplete: () -> Unit = {}) {
-        if (term.id.isEmpty()) {
-            db.collection("registration_terms").add(term)
-                .addOnSuccessListener { onComplete() }
-        } else {
-            db.collection("registration_terms").document(term.id).set(term)
-                .addOnSuccessListener { onComplete() }
-        }
+        val targetId = if (term.id.isEmpty()) UUID.randomUUID().toString() else term.id
+        val target = term.copy(id = targetId)
+        db.collection("registration_terms").document(targetId).set(target)
+            .addOnSuccessListener {
+                onTelemetryUpdate()
+                onComplete()
+            }
+            .addOnFailureListener {
+                onComplete()
+            }
     }
 
     fun deleteRegistrationTerm(id: String, onComplete: () -> Unit = {}) {
         db.collection("registration_terms").document(id).delete()
-            .addOnSuccessListener { onComplete() }
+            .addOnSuccessListener {
+                onTelemetryUpdate()
+                onComplete()
+            }
+            .addOnFailureListener {
+                onComplete()
+            }
     }
 
-    // ================== DATA SEEDING ==================
-
-    private fun seedRegistrationTerms() {
-        val defaultTerms = listOf(
-            RegistrationTerm("", "الالتزام بالمعايير الفنية والمهنية باليمن والمحافظة على أمانة العمل.", 0, true),
-            RegistrationTerm("", "عدم تحصيل أي مبالغ إضافية أو رسوم تفوق السعر المتفق عليه بالدليل.", 1, true),
-            RegistrationTerm("", "تحمل المسؤولية الكاملة القانونية والأخلاقية عن أي خلل ناتج عن سوء تقديم الخدمة.", 2, true)
-        )
-        for (term in defaultTerms) {
-            db.collection("registration_terms").add(term)
-        }
+    fun saveCommercialOffer(offer: CommercialOffer, onComplete: () -> Unit = {}) {
+        val targetId = if (offer.id.isEmpty()) UUID.randomUUID().toString() else offer.id
+        val target = offer.copy(id = targetId)
+        db.collection("commercial_offers").document(targetId).set(target)
+            .addOnSuccessListener {
+                onTelemetryUpdate()
+                onComplete()
+            }
+            .addOnFailureListener {
+                onComplete()
+            }
     }
 
-    private fun seedCategories() {
-        val defaultCats = listOf(
-            ServiceCategory("", "طاقة شمسية وكهرباء", "Solar Energy & Electricity", "⚡", true, 0),
-            ServiceCategory("", "برمجة وصيانة هواتف", "Software & Mobile Services", "📱", true, 1),
-            ServiceCategory("", "سباكة وتمديدات", "Plumbing Services", "🚰", true, 2),
-            ServiceCategory("", "نظافة وصيانة منزلية", "Cleaning & Home Repair", "🧹", true, 3),
-            ServiceCategory("", "صيانة سيارات وميكانيك", "Car Maintenance & Repair", "🚗", true, 4)
-        )
-        for (cat in defaultCats) {
-            db.collection("categories").add(cat)
-        }
-    }
-
-    private fun seedProviders() {
-        val defaultProviders = listOf(
-            ServiceProvider("", "المهندس عادل الحمادي", "777123456", "777123456", "seed_cat_1", "تركيب منظومات شمسية متكاملة وإصلاحها", "شارع حدة - أمام مركز الكميم", "صنعاء", "3000", true, false, "", true),
-            ServiceProvider("", "فني طاقة المهندس كريم", "735987654", "735987654", "seed_cat_1", "تمديدات كهرباء منزلية وصيانة ألواح", "المعلا - بجانب البريد", "عدن", "2000", false, false, "", true),
-            ServiceProvider("", "صابر مبرمج أنظمة وأندرويد", "780111222", "780111222", "seed_cat_2", "برمجة وتحديث هواتف وتخطي حسابات", "شارع جمال - جولة سنان", "تعز", "1000", true, false, "", true),
-            ServiceProvider("", "فارس اليماني للسباكة", "712654321", "712654321", "seed_cat_3", "تأسيس شبكات مياه وصيانة مضخات", "شارع الدائري - بجانب الجامعة", "إب", "2500", false, false, "", true)
-        )
-        // Note: For seeding, normally we look up the newly created category, or we just seed them as placeholders
-        for (prov in defaultProviders) {
-            db.collection("providers").add(prov)
-        }
-    }
-
-    private fun seedBanners() {
-        val defaultBanners = listOf(
-            BannerAd("", "تثبيت وضمان فني مميز لمنزلك", "https://images.unsplash.com/photo-1621905251189-08b45d6a269e", "https://google.com", "M", "Image Background", 5f),
-            BannerAd("", "خصومات الصيف على تمديدات الكهرباء والطاقة المجددة", "https://images.unsplash.com/photo-1508514177221-188b1cf16e9d", "https://google.com", "L", "Promotional Text", 6f)
-        )
-        for (b in defaultBanners) {
-            db.collection("banners").add(b)
-        }
-    }
-
-    private fun seedSupervisors() {
-        db.collection("supervisors").add(Moderator("", "admin", "admin2026"))
-        db.collection("supervisors").add(Moderator("", "ali", "1234"))
-    }
-
-    private fun seedCities() {
-        val list = listOf("صنعاء", "عدن", "تعز", "إب", "حضرموت", "الحديدة", "ذمار")
-        for (city in list) {
-            db.collection("cities").add(mapOf("nameAr" to city, "nameEn" to city))
-        }
+    fun deleteCommercialOffer(id: String, onComplete: () -> Unit = {}) {
+        db.collection("commercial_offers").document(id).delete()
+            .addOnSuccessListener {
+                onTelemetryUpdate()
+                onComplete()
+            }
+            .addOnFailureListener {
+                onComplete()
+            }
     }
 }

@@ -1,8 +1,10 @@
 package com.dalyly
 
 import androidx.compose.ui.graphics.Color
+import kotlinx.serialization.Serializable
 import java.util.UUID
 
+@Serializable
 data class ServiceCategory(
     val id: String = "",
     val nameAr: String = "",
@@ -14,6 +16,7 @@ data class ServiceCategory(
     val isPinned: Boolean = false
 )
 
+@Serializable
 data class ServiceProvider(
     val id: String = "",
     val name: String = "",
@@ -36,6 +39,7 @@ data class ServiceProvider(
     val gender: String = "Male" // "Male" or "Female"
 )
 
+@Serializable
 data class BannerAd(
     val id: String = "",
     val title: String = "",
@@ -47,6 +51,7 @@ data class BannerAd(
     val categoryId: String = ""
 )
 
+@Serializable
 data class IncidentReport(
     val id: String = "",
     val providerId: String = "",
@@ -57,6 +62,7 @@ data class IncidentReport(
     val status: String = "PENDING" // PENDING, INVESTIGATING, RESOLVED
 )
 
+@Serializable
 data class Moderator(
     val id: String = "",
     val username: String = "",
@@ -68,15 +74,17 @@ data class Moderator(
     val canSeeReports: Boolean = true
 )
 
+@Serializable
 data class ChatMessage(
     val id: String = "",
-    val messageId: String = UUID.randomUUID().toString(),
+    val messageId: String = "",
     val senderName: String = "",
     val messageText: String = "",
     val timestamp: Long = System.currentTimeMillis(),
     val isFromAdmin: Boolean = false
 )
 
+@Serializable
 data class AppConfig(
     val id: String = "current_config",
     val themeType: String = "Classic Dark", // Classic Dark, Yemen Red, Ocean Blue, luxury Golden, Custom Colors
@@ -115,9 +123,23 @@ data class AppConfig(
     val welcomeMessage: String = "مرحباً بك في تطبيق دليلي للخدمات والمهن الصيانة!",
     val adminPassword: String = "maher736462",
     val textColorHex: String = "#FFFFFF",
-    val fontType: String = "عريض"
+    val fontType: String = "عريض",
+    val isOffersSectionEnabled: Boolean = true
 )
 
+@Serializable
+data class CommercialOffer(
+    val id: String = "",
+    val title: String = "",
+    val description: String = "",
+    val price: String = "",
+    val imageUrl: String = "",
+    val contactPhone: String = "",
+    val active: Boolean = true,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
+@Serializable
 data class RegistrationTerm(
     val id: String = "",
     val text: String = "",

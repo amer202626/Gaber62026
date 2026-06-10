@@ -124,7 +124,9 @@ fun DalylyTheme(
             onPrimary = Color.White,
             onSecondary = Color.Black,
             onBackground = Color.Black,
-            onSurface = Color.Black
+            onSurface = Color.Black,
+            surfaceVariant = Color(0xFFEEEEEE),
+            onSurfaceVariant = Color.Black
         )
     } else {
         // High-fidelity dark mode mapping
@@ -141,7 +143,9 @@ fun DalylyTheme(
                     onPrimary = Color.Black,
                     onSecondary = Color.White,
                     onBackground = txtColor,
-                    onSurface = txtColor
+                    onSurface = txtColor,
+                    surfaceVariant = Color(0xFF1E1E1E),
+                    onSurfaceVariant = Color.White
                 )
             }
             "Yemen Red" -> darkColorScheme(
@@ -153,7 +157,9 @@ fun DalylyTheme(
                 onPrimary = Color.White,
                 onSecondary = Color.White,
                 onBackground = txtColor,
-                onSurface = txtColor
+                onSurface = txtColor,
+                surfaceVariant = Color(0xFF252525),
+                onSurfaceVariant = Color.White
             )
             "Ocean Blue" -> darkColorScheme(
                 primary = Color(0xFF00ADB5), // Cyan Tech
@@ -164,7 +170,9 @@ fun DalylyTheme(
                 onPrimary = Color.Black,
                 onSecondary = Color.White,
                 onBackground = txtColor,
-                onSurface = txtColor
+                onSurface = txtColor,
+                surfaceVariant = Color(0xFF1F2228),
+                onSurfaceVariant = Color.White
             )
             "luxury Golden", "الذهبي الفاخر", "الذهبي الفاخر ✨", "Luxury Gold" -> darkColorScheme(
                 primary = Color(0xFFD4AF37), // Metallic Gold
@@ -175,7 +183,9 @@ fun DalylyTheme(
                 onPrimary = Color.Black,
                 onSecondary = Color.Black,
                 onBackground = txtColor,
-                onSurface = txtColor
+                onSurface = txtColor,
+                surfaceVariant = Color(0xFF252525),
+                onSurfaceVariant = Color.White
             )
             "Cosmic Silver", "كوزميك سيلفر", "كوزميك سيلفر 🌌" -> darkColorScheme(
                 primary = Color(0xFFD1D1D6), // Metallic Cosmic Silver
@@ -186,7 +196,9 @@ fun DalylyTheme(
                 onPrimary = Color.Black,
                 onSecondary = Color.White,
                 onBackground = txtColor,
-                onSurface = txtColor
+                onSurface = txtColor,
+                surfaceVariant = Color(0xFF2A2A2D),
+                onSurfaceVariant = Color.White
             )
             "Royal Emerald", "الزمردي الراقي", "الزمردي الراقي 🟢" -> darkColorScheme(
                 primary = Color(0xFF50C878), // Royal Emerald Green
@@ -197,7 +209,9 @@ fun DalylyTheme(
                 onPrimary = Color.White,
                 onSecondary = Color.White,
                 onBackground = txtColor,
-                onSurface = txtColor
+                onSurface = txtColor,
+                surfaceVariant = Color(0xFF182A1F),
+                onSurfaceVariant = Color.White
             )
             "Purple & Teal", "البنفسجي والتيال", "البنفسجي والتيال الكلاسيكي" -> darkColorScheme(
                 primary = Color(0xFF6200EE), // purple_500
@@ -208,7 +222,9 @@ fun DalylyTheme(
                 onPrimary = Color(0xFFFFFFFF), // white
                 onSecondary = Color(0xFF000000), // black
                 onBackground = txtColor,
-                onSurface = txtColor
+                onSurface = txtColor,
+                surfaceVariant = Color(0xFF222222),
+                onSurfaceVariant = Color.White
             )
             else -> darkColorScheme( // Classic Dark
                 primary = Color(0xFFEAA135), // Golden Orange
@@ -219,7 +235,9 @@ fun DalylyTheme(
                 onPrimary = Color.Black,
                 onSecondary = Color.White,
                 onBackground = txtColor,
-                onSurface = txtColor
+                onSurface = txtColor,
+                surfaceVariant = Color(0xFF2D3035),
+                onSurfaceVariant = Color.White
             )
         }
     }
@@ -486,19 +504,40 @@ fun MainAppScreen() {
                                             horizontalArrangement = Arrangement.SpaceBetween,
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            // Left: About Shortcut Icon (reduced by 50% as requested)
-                                            IconButton(
-                                                onClick = {
-                                                    userSelectedTab = if (userSelectedTab == "ABOUT") "HOME" else "ABOUT"
-                                                },
-                                                modifier = Modifier.size(28.dp)
+                                            // Left: About & Support Chat Icons (Direct triggers)
+                                            Row(
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Info,
-                                                    contentDescription = "عن التطبيق",
-                                                    tint = if (userSelectedTab == "ABOUT") MaterialTheme.colorScheme.primary else Color.Gray,
-                                                    modifier = Modifier.size(16.dp) // 50% scale
-                                                )
+                                                // About Application Shortcut
+                                                IconButton(
+                                                    onClick = {
+                                                        userSelectedTab = if (userSelectedTab == "ABOUT") "HOME" else "ABOUT"
+                                                    },
+                                                    modifier = Modifier.size(28.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Info,
+                                                        contentDescription = "عن التطبيق",
+                                                        tint = if (userSelectedTab == "ABOUT") MaterialTheme.colorScheme.primary else Color.Gray,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
+
+                                                // Direct Live Chat Support Icon next to footer
+                                                IconButton(
+                                                    onClick = {
+                                                        isChatViewExpanded = !isChatViewExpanded
+                                                    },
+                                                    modifier = Modifier.size(28.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Chat,
+                                                        contentDescription = "الدعم المباشر",
+                                                        tint = if (isChatViewExpanded) MaterialTheme.colorScheme.primary else Color.Gray,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
                                             }
 
                                             // Center Footer Text
@@ -2122,7 +2161,7 @@ fun FloatingActionChatWidget(
                                     OutlinedTextField(
                                         value = tempName,
                                         onValueChange = { tempName = it },
-                                        placeholder = { Text("مثال: أمين ردمان", color = if (isSystemInDarkTheme()) Color.LightGray else Color.Gray) },
+                                        placeholder = { Text("مثال: أمين ردمان", color = if (isSystemInDarkTheme()) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.6f)) },
                                         singleLine = true,
                                         modifier = Modifier.fillMaxWidth(),
                                         textStyle = androidx.compose.ui.text.TextStyle(color = if (isSystemInDarkTheme()) Color.White else Color.Black),
@@ -2130,9 +2169,9 @@ fun FloatingActionChatWidget(
                                             focusedTextColor = if (isSystemInDarkTheme()) Color.White else Color.Black,
                                             unfocusedTextColor = if (isSystemInDarkTheme()) Color.White else Color.Black,
                                             focusedBorderColor = themeColor,
-                                            unfocusedBorderColor = Color.Gray,
-                                            focusedContainerColor = if (isSystemInDarkTheme()) Color(0xFF1E1E1E) else Color(0xFFF9F9F9),
-                                            unfocusedContainerColor = if (isSystemInDarkTheme()) Color(0xFF1E1E1E) else Color(0xFFF9F9F9)
+                                            unfocusedBorderColor = if (isSystemInDarkTheme()) Color.White.copy(alpha = 0.4f) else Color.Gray,
+                                            focusedContainerColor = if (isSystemInDarkTheme()) Color(0xFF121212) else Color(0xFFFFFFFF),
+                                            unfocusedContainerColor = if (isSystemInDarkTheme()) Color(0xFF121212) else Color(0xFFFFFFFF)
                                         )
                                     )
                                     Spacer(modifier = Modifier.height(12.dp))
@@ -2186,7 +2225,7 @@ fun FloatingActionChatWidget(
                                     OutlinedTextField(
                                         value = draftText,
                                         onValueChange = { onDraftChange(it) },
-                                        placeholder = { Text("تفاصيل المشكلة للتحقق...", color = if (isSystemInDarkTheme()) Color.LightGray else Color.Gray) },
+                                        placeholder = { Text("تفاصيل المشكلة للتحقق...", color = if (isSystemInDarkTheme()) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.6f)) },
                                         modifier = Modifier.weight(1f),
                                         maxLines = 2,
                                         textStyle = androidx.compose.ui.text.TextStyle(color = if (isSystemInDarkTheme()) Color.White else Color.Black),
@@ -2194,9 +2233,9 @@ fun FloatingActionChatWidget(
                                             focusedTextColor = if (isSystemInDarkTheme()) Color.White else Color.Black,
                                             unfocusedTextColor = if (isSystemInDarkTheme()) Color.White else Color.Black,
                                             focusedBorderColor = themeColor,
-                                            unfocusedBorderColor = Color.Gray,
-                                            focusedContainerColor = if (isSystemInDarkTheme()) Color(0xFF1E1E1E) else Color(0xFFF9F9F9),
-                                            unfocusedContainerColor = if (isSystemInDarkTheme()) Color(0xFF1E1E1E) else Color(0xFFF9F9F9)
+                                            unfocusedBorderColor = if (isSystemInDarkTheme()) Color.White.copy(alpha = 0.4f) else Color.Gray,
+                                            focusedContainerColor = if (isSystemInDarkTheme()) Color(0xFF121212) else Color(0xFFFFFFFF),
+                                            unfocusedContainerColor = if (isSystemInDarkTheme()) Color(0xFF121212) else Color(0xFFFFFFFF)
                                         )
                                     )
                                     IconButton(
@@ -2214,17 +2253,19 @@ fun FloatingActionChatWidget(
                 }
             }
 
-            // Floating Main Button
-            FloatingActionButton(
-                onClick = onToggle,
-                containerColor = themeColor,
-                contentColor = Color.Black,
-                modifier = Modifier.size(config.chatIconSize.dp)
-            ) {
-                Icon(
-                    imageVector = if (isExpanded) Icons.Default.Close else Icons.Default.Chat,
-                    contentDescription = "Chat Support"
-                )
+            // Floating Close Button (when expanded, to support closing)
+            if (isExpanded) {
+                FloatingActionButton(
+                    onClick = onToggle,
+                    containerColor = themeColor,
+                    contentColor = Color.Black,
+                    modifier = Modifier.size(config.chatIconSize.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close Chat Support"
+                    )
+                }
             }
         }
     }
@@ -3447,6 +3488,7 @@ fun FloatingAIAssistantWidget(
     var aiMessages by remember { mutableStateOf(listOf(ChatMessage(senderName = "دليلي الذكي 🤖", messageText = config.welcomeMessage.ifBlank { "مرحباً بك! أنا مساعدك الذكي لخدمات اليمن. كيف يمكنني مساعدتك اليوم؟" }, isFromAdmin = true))) }
     var aiDraft by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
+    var aiJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
     fun parseColor(hex: String, default: Color): Color {
         return try {
@@ -3554,7 +3596,7 @@ fun FloatingAIAssistantWidget(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(Color.Black.copy(alpha = 0.2f))
+                                .background(if (isSystemInDarkTheme()) Color(0xFF1E1E1E) else Color(0xFFF0F2F5))
                                 .padding(8.dp),
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -3562,7 +3604,7 @@ fun FloatingAIAssistantWidget(
                             OutlinedTextField(
                                 value = aiDraft,
                                 onValueChange = { aiDraft = it },
-                                placeholder = { Text("اطرح سؤالاً...", color = if (isSystemInDarkTheme()) Color.LightGray else Color.Gray) },
+                                placeholder = { Text("اطرح سؤالاً...", color = if (isSystemInDarkTheme()) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.6f)) },
                                 modifier = Modifier.weight(1f),
                                 maxLines = 2,
                                 textStyle = androidx.compose.ui.text.TextStyle(color = if (isSystemInDarkTheme()) Color.White else Color.Black),
@@ -3570,9 +3612,9 @@ fun FloatingAIAssistantWidget(
                                     focusedTextColor = if (isSystemInDarkTheme()) Color.White else Color.Black,
                                     unfocusedTextColor = if (isSystemInDarkTheme()) Color.White else Color.Black,
                                     focusedBorderColor = themeColor,
-                                    unfocusedBorderColor = Color.Gray,
-                                    focusedContainerColor = if (isSystemInDarkTheme()) Color(0xFF1E1E1E) else Color(0xFFF9F9F9),
-                                    unfocusedContainerColor = if (isSystemInDarkTheme()) Color(0xFF1E1E1E) else Color(0xFFF9F9F9)
+                                    unfocusedBorderColor = if (isSystemInDarkTheme()) Color.White.copy(alpha = 0.4f) else Color.Gray,
+                                    focusedContainerColor = if (isSystemInDarkTheme()) Color(0xFF121212) else Color(0xFFFFFFFF),
+                                    unfocusedContainerColor = if (isSystemInDarkTheme()) Color(0xFF121212) else Color(0xFFFFFFFF)
                                 )
                             )
                             IconButton(
@@ -3582,15 +3624,19 @@ fun FloatingAIAssistantWidget(
                                         val userMsg = aiDraft
                                         aiMessages = aiMessages + ChatMessage(senderName = "أنت", messageText = userMsg, isFromAdmin = false)
                                         aiDraft = ""
-                                        scope.launch {
+                                        
+                                        // Cancel any existing model generation job before launching new one
+                                        aiJob?.cancel()
+                                        aiJob = scope.launch {
                                             try {
                                                 val response = GeminiHelper.generateResponse(userMsg)
-                                                // Verify message does not exist already
                                                 if (aiMessages.none { it.senderName == "المساعد الذكي 🤖" && it.messageText == response }) {
                                                     aiMessages = aiMessages + ChatMessage(senderName = "المساعد الذكي 🤖", messageText = response, isFromAdmin = true)
                                                 }
                                             } catch (e: Exception) {
-                                                aiMessages = aiMessages + ChatMessage(senderName = "المساعد الذكي 🤖", messageText = "عذراً، حدث خطأ في معالجة طلبك.", isFromAdmin = true)
+                                                if (e !is kotlinx.coroutines.CancellationException) {
+                                                    aiMessages = aiMessages + ChatMessage(senderName = "المساعد الذكي 🤖", messageText = "عذراً، حدث خطأ في معالجة طلبك.", isFromAdmin = true)
+                                                }
                                             } finally {
                                                 isLoading = false
                                             }

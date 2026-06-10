@@ -35,13 +35,13 @@ object FirebaseManager {
         if (!isInitialized) {
             isInitialized = true
             
-            // Set Firestore offline persistence settings
+            // Set Firestore offline persistence settings - Disabled completely to rely strictly on direct real-time cloud Firestore sync as requested
             try {
                 val settings = com.google.firebase.firestore.FirebaseFirestoreSettings.Builder()
-                    .setPersistenceEnabled(true) // Enabled for robust offline caching and seamless transitions without stuttering
+                    .setPersistenceEnabled(false) // Disabled completely for real-time instant synchronization without local storage caches
                     .build()
                 db.setFirestoreSettings(settings)
-                Log.d("FirebaseManager", "Firestore cache priority and persistence enabled.")
+                Log.d("FirebaseManager", "Firestore offline cache bypassed. Relying 100% on real-time internet sync.")
             } catch (e: Exception) {
                 Log.e("FirebaseManager", "Error setting Firestore settings", e)
             }

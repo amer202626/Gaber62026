@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -328,6 +329,7 @@ fun MainAppScreen() {
     var regGender by remember { mutableStateOf("Male") }
     var regPhotoUrl by remember { mutableStateOf("") }
     var regSelfieUrl by remember { mutableStateOf("") }
+    var regWorkImages by remember { mutableStateOf<List<String>>(emptyList()) }
     var isRegSubmitting by remember { mutableStateOf(false) }
 
     // Report complaints states
@@ -459,6 +461,52 @@ fun MainAppScreen() {
                 Toast.makeText(context, "تم التقاط وضغط الصورة بنجاح بالكاميرا 📸", Toast.LENGTH_SHORT).show()
             } else {
                 Toast.makeText(context, "فشل معالجة لقطة الكاميرا الشخصية", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    // 4.5 Portfolio/Work Gallery Launcher
+    val portfolioGalleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let {
+            if (regWorkImages.size >= configState.maxWorkImages) {
+                Toast.makeText(context, "لقد وصلت للحد الأقصى المسموح به من صور الأعمال وهو ${configState.maxWorkImages} صور!", Toast.LENGTH_SHORT).show()
+                return@rememberLauncherForActivityResult
+            }
+            try {
+                val inputStream = context.contentResolver.openInputStream(it)
+                val bitmap = BitmapFactory.decodeStream(inputStream)
+                if (bitmap != null) {
+                    val encoded = compressBitmapToBase64(bitmap)
+                    if (encoded != null) {
+                        regWorkImages = regWorkImages + encoded
+                        Toast.makeText(context, "تمت إضافة صورة من نماذج أعمالك بنجاح 🖼️", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "فشل ضغط صورة العمل المحددة", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } catch (e: Exception) {
+                Toast.makeText(context, "خطأ في قراءة صورة العمل المحددة", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    // 4.6 Portfolio/Work Camera Launcher
+    val portfolioCameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicturePreview()
+    ) { bitmap ->
+        bitmap?.let {
+            if (regWorkImages.size >= configState.maxWorkImages) {
+                Toast.makeText(context, "لقد وصلت للحد الأقصى المسموح به من صور الأعمال وهو ${configState.maxWorkImages} صور!", Toast.LENGTH_SHORT).show()
+                return@rememberLauncherForActivityResult
+            }
+            val encoded = compressBitmapToBase64(it)
+            if (encoded != null) {
+                regWorkImages = regWorkImages + encoded
+                Toast.makeText(context, "تم التقاط وضغط صورة نموذج العمل بنجاح للكاميرا 📸", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(context, "فشل معالجة لقطة الكاميرا لنماذج الأعمال", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -1628,6 +1676,87 @@ fun MainAppScreen() {
 
                             Spacer(modifier = Modifier.height(6.dp))
 
+                            Text(
+                                text = "نماذج من أعمالك وسيرتك المهنية (مستند التميز/اختياري) 🖼️🔨:",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Button(
+                                    onClick = { portfolioGalleryLauncher.launch("image/*") },
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                                ) {
+                                    Text("أضف من المعرض 🖼️", fontSize = 11.sp)
+                                }
+                                Button(
+                                    onClick = { portfolioCameraLauncher.launch() },
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                                ) {
+                                    Text("التقط عمل بـ الكاميرا 📸", fontSize = 11.sp)
+                                }
+                            }
+                            Text(
+                                text = "الصور المرفوعة حالياً: ${regWorkImages.size} من أصل ${configState.maxWorkImages} حد أقصى",
+                                fontSize = 10.sp,
+                                color = Color.LightGray
+                            )
+                            if (regWorkImages.isNotEmpty()) {
+                                androidx.compose.foundation.lazy.LazyRow(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    items(regWorkImages.size) { index ->
+                                        val base64Str = regWorkImages[index]
+                                        val imageBitmap = remember(base64Str) {
+                                            try {
+                                                val decodedBytes = android.util.Base64.decode(base64Str, android.util.Base64.DEFAULT)
+                                                BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.size)?.asImageBitmap()
+                                            } catch (e: Exception) {
+                                                null
+                                            }
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .size(70.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(Color.DarkGray)
+                                        ) {
+                                            imageBitmap?.let { bmp ->
+                                                Image(
+                                                    bitmap = bmp,
+                                                    contentDescription = "Portfolio Work Image",
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    contentScale = ContentScale.Crop
+                                                )
+                                            }
+                                            IconButton(
+                                                onClick = { regWorkImages = regWorkImages.filterIndexed { idx, _ -> idx != index } },
+                                                modifier = Modifier
+                                                    .size(24.dp)
+                                                    .align(Alignment.TopEnd)
+                                                    .background(Color.Red.copy(alpha = 0.8f), shape = RoundedCornerShape(bottomStart = 8.dp))
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Close,
+                                                    contentDescription = "Delete Image",
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
@@ -1710,7 +1839,8 @@ fun MainAppScreen() {
                                                 active = approvedImmediately,
                                                 photoUrl = regPhotoUrl,
                                                 selfieUrl = regSelfieUrl,
-                                                gender = regGender
+                                                gender = regGender,
+                                                workImages = regWorkImages
                                             )
                                             FirebaseManager.saveProvider(newProv) {
                                                 isRegSubmitting = false
@@ -1727,6 +1857,7 @@ fun MainAppScreen() {
                                                 regAddress = ""
                                                 regPhotoUrl = ""
                                                 regSelfieUrl = ""
+                                                regWorkImages = emptyList()
                                                 regGender = "Male"
                                                 showRegisterDialog = false
                                             }

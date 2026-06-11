@@ -36,7 +36,8 @@ data class ServiceProvider(
     val isVerified: Boolean = false,
     val photoUrl: String = "",
     val selfieUrl: String = "",
-    val gender: String = "Male" // "Male" or "Female"
+    val gender: String = "Male", // "Male" or "Female"
+    val workImages: List<String> = emptyList()
 )
 
 @Serializable
@@ -124,7 +125,8 @@ data class AppConfig(
     val adminPassword: String = "maher736462",
     val textColorHex: String = "#FFFFFF",
     val fontType: String = "عريض",
-    val isOffersSectionEnabled: Boolean = true
+    val isOffersSectionEnabled: Boolean = true,
+    val maxWorkImages: Int = 4
 )
 
 @Serializable

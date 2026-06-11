@@ -158,6 +158,7 @@ fun AdminDashboardView(
         // Allow BOTH owner and supervisors/admins to see Configs (which contains colors, text, and Registration Terms)
         list.add("CONFIGS" to "10. الألوان والخطوط والشروط 🎨📝")
         list.add("OFFERS_MANAGE" to "11. العروض التجارية والسلع 🛒")
+        list.add("STATS" to "12. إحصائيات ورسوم بيانية 📊")
         list
     }
 
@@ -394,6 +395,42 @@ fun AdminDashboardView(
                                                 modifier = Modifier.size(80.dp).clip(RoundedCornerShape(6.dp)).background(Color.DarkGray),
                                                 contentScale = ContentScale.Crop
                                             )
+                                        }
+                                    }
+                                }
+
+                                if (pending.workImages.isNotEmpty()) {
+                                    Text("معرض صور أعمال مقدم الخدمة (${pending.workImages.size}):", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    LazyRow(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.fillMaxWidth().height(90.dp)
+                                    ) {
+                                        items(pending.workImages) { imgBase64 ->
+                                            Box(modifier = Modifier.size(90.dp)) {
+                                                AsyncImage(
+                                                    model = imgBase64,
+                                                    contentDescription = "Work Image",
+                                                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(6.dp)).background(Color.DarkGray),
+                                                    contentScale = ContentScale.Crop
+                                                )
+                                                IconButton(
+                                                    onClick = {
+                                                        val updatedImages = pending.workImages.filter { it != imgBase64 }
+                                                        val updatedProv = pending.copy(workImages = updatedImages)
+                                                        FirebaseManager.saveProvider(updatedProv) {
+                                                            Toast.makeText(context, "تم حذف صورة نموذج العمل الحرفي بنجاح!", Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    },
+                                                    modifier = Modifier.align(Alignment.TopEnd).size(26.dp).background(Color.Red.copy(alpha = 0.8f), CircleShape)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Close,
+                                                        contentDescription = "Delete image sample",
+                                                        tint = Color.White,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -1012,31 +1049,74 @@ fun AdminDashboardView(
                                 }
 
                                 if (showMediaLocal) {
-                                    Row(
+                                    Column(
                                         modifier = Modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.2f)).padding(6.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
-                                        if (act.photoUrl.isEmpty() && act.selfieUrl.isEmpty()) {
-                                            Text("لا تتوفر أي وثائق مصورة للفني بالخادم حالياً", fontSize = 11.sp, color = Color.Gray)
-                                        } else {
-                                            if (act.photoUrl.isNotEmpty()) {
-                                                Column {
-                                                    Text("الهوية المهنية / الرمز:", fontSize = 9.sp, color = Color.White)
-                                                    AsyncImage(
-                                                        model = act.photoUrl,
-                                                        contentDescription = "PFile",
-                                                        modifier = Modifier.size(70.dp).clip(RoundedCornerShape(4.dp)).background(Color.DarkGray)
-                                                    )
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            if (act.photoUrl.isEmpty() && act.selfieUrl.isEmpty()) {
+                                                Text("لا تتوفر أي وثائق مصورة للفني بالخادم حالياً", fontSize = 11.sp, color = Color.Gray)
+                                            } else {
+                                                if (act.photoUrl.isNotEmpty()) {
+                                                    Column {
+                                                        Text("الهوية المهنية / الرمز:", fontSize = 9.sp, color = Color.White)
+                                                        AsyncImage(
+                                                            model = act.photoUrl,
+                                                            contentDescription = "PFile",
+                                                            modifier = Modifier.size(70.dp).clip(RoundedCornerShape(4.dp)).background(Color.DarkGray)
+                                                        )
+                                                    }
+                                                }
+                                                if (act.selfieUrl.isNotEmpty()) {
+                                                    Column {
+                                                        Text("الصورة الذاتية السيلفي:", fontSize = 9.sp, color = Color.White)
+                                                        AsyncImage(
+                                                            model = act.selfieUrl,
+                                                            contentDescription = "SFile",
+                                                            modifier = Modifier.size(70.dp).clip(RoundedCornerShape(4.dp)).background(Color.DarkGray)
+                                                        )
+                                                    }
                                                 }
                                             }
-                                            if (act.selfieUrl.isNotEmpty()) {
-                                                Column {
-                                                    Text("الصورة الذاتية السيلفي:", fontSize = 9.sp, color = Color.White)
-                                                    AsyncImage(
-                                                        model = act.selfieUrl,
-                                                        contentDescription = "SFile",
-                                                        modifier = Modifier.size(70.dp).clip(RoundedCornerShape(4.dp)).background(Color.DarkGray)
-                                                    )
+                                        }
+                                        
+                                        if (act.workImages.isNotEmpty()) {
+                                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                Text("نماذج وصور الأعمال الفنية المرفقة (${act.workImages.size}):", fontSize = 10.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                                                LazyRow(
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                    modifier = Modifier.fillMaxWidth().height(80.dp)
+                                                ) {
+                                                    items(act.workImages) { imgBase64 ->
+                                                        Box(modifier = Modifier.size(80.dp)) {
+                                                            AsyncImage(
+                                                                model = imgBase64,
+                                                                contentDescription = "Work sample image pointer",
+                                                                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(6.dp)).background(Color.DarkGray),
+                                                                contentScale = ContentScale.Crop
+                                                            )
+                                                            IconButton(
+                                                                onClick = {
+                                                                    val updatedImages = act.workImages.filter { it != imgBase64 }
+                                                                    val updatedProv = act.copy(workImages = updatedImages)
+                                                                    FirebaseManager.saveProvider(updatedProv) {
+                                                                        Toast.makeText(context, "تم حذف صورة نموذج العمل الفني بنجاح!", Toast.LENGTH_SHORT).show()
+                                                                    }
+                                                                },
+                                                                modifier = Modifier.align(Alignment.TopEnd).size(24.dp).background(Color.Red.copy(alpha = 0.8f), CircleShape)
+                                                            ) {
+                                                                Icon(
+                                                                    imageVector = Icons.Default.Close,
+                                                                    contentDescription = "Delete image sample button",
+                                                                    tint = Color.White,
+                                                                    modifier = Modifier.size(12.dp)
+                                                                )
+                                                            }
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -1661,6 +1741,136 @@ fun AdminDashboardView(
                                          ) {
                                              Text("حذف ❌", fontSize = 10.sp, color = Color.White)
                                          }
+                                     }
+                                 }
+                             }
+                         }
+                     }
+                 }
+             }
+
+             "STATS" -> {
+                 val totalProvs = providers.size
+                 val activeProvs = providers.count { !it.isPending && it.active }
+                 val pendingProvs = providers.count { it.isPending }
+                 val reportsCount = incidents.size
+                 
+                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                     Text(
+                         text = "لوحة التحليل الإحصائي والنمو الرقمي 📊",
+                         fontWeight = FontWeight.Bold,
+                         fontSize = 16.sp,
+                         color = MaterialTheme.colorScheme.primary
+                     )
+                     
+                     Row(
+                         modifier = Modifier.fillMaxWidth(),
+                         horizontalArrangement = Arrangement.spacedBy(8.dp)
+                     ) {
+                         Card(
+                             modifier = Modifier.weight(1f),
+                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                         ) {
+                             Column(
+                                 modifier = Modifier.padding(10.dp),
+                                 horizontalAlignment = Alignment.CenterHorizontally
+                             ) {
+                                 Text("إجمالي الفنيين", fontSize = 10.sp, color = Color.LightGray)
+                                 Text("$totalProvs", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                             }
+                         }
+                         
+                         Card(
+                             modifier = Modifier.weight(1f),
+                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                         ) {
+                             Column(
+                                 modifier = Modifier.padding(10.dp),
+                                 horizontalAlignment = Alignment.CenterHorizontally
+                             ) {
+                                 Text("النشطون بالدليل", fontSize = 10.sp, color = Color.LightGray)
+                                 Text("$activeProvs", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.Green)
+                             }
+                         }
+                     }
+
+                     Row(
+                         modifier = Modifier.fillMaxWidth(),
+                         horizontalArrangement = Arrangement.spacedBy(8.dp)
+                     ) {
+                         Card(
+                             modifier = Modifier.weight(1f),
+                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                         ) {
+                             Column(
+                                 modifier = Modifier.padding(10.dp),
+                                 horizontalAlignment = Alignment.CenterHorizontally
+                             ) {
+                                 Text("طلبات معلقة", fontSize = 10.sp, color = Color.LightGray)
+                                 Text("$pendingProvs", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.Yellow)
+                             }
+                         }
+
+                         Card(
+                             modifier = Modifier.weight(1f),
+                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                         ) {
+                             Column(
+                                 modifier = Modifier.padding(10.dp),
+                                 horizontalAlignment = Alignment.CenterHorizontally
+                             ) {
+                                 Text("الإبلاغات والشكاوى", fontSize = 10.sp, color = Color.LightGray)
+                                 Text("$reportsCount", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.Red)
+                             }
+                         }
+                     }
+                     
+                     Spacer(modifier = Modifier.height(6.dp))
+                     
+                     Text(
+                         text = "📊 توزيع المهنيين حسب الأقسام (مؤشر الأكثر طلباً):",
+                         fontWeight = FontWeight.Bold,
+                         fontSize = 12.sp,
+                         color = Color.White
+                     )
+                     
+                     if (categories.isEmpty()) {
+                         Text("جاري تحميل الأقسام...", fontSize = 11.sp, color = Color.Gray)
+                     } else {
+                         categories.forEach { cat ->
+                             val count = providers.count { it.categoryId == cat.id || it.categoryId == "seed_${cat.id}" }
+                             val percentage = if (totalProvs > 0) count.toFloat() / totalProvs.toFloat() else 0f
+                             
+                             Card(
+                                 modifier = Modifier.fillMaxWidth(),
+                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                             ) {
+                                 Column(modifier = Modifier.padding(10.dp)) {
+                                     Row(
+                                         modifier = Modifier.fillMaxWidth(),
+                                         horizontalArrangement = Arrangement.SpaceBetween,
+                                         verticalAlignment = Alignment.CenterVertically
+                                     ) {
+                                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                             Text(cat.emoji, fontSize = 14.sp)
+                                             Text(cat.nameAr, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                         }
+                                         Text("$count مهنيـاً", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                     }
+                                     Spacer(modifier = Modifier.height(4.dp))
+                                     Box(
+                                         modifier = Modifier
+                                             .fillMaxWidth()
+                                             .height(8.dp)
+                                             .clip(RoundedCornerShape(4.dp))
+                                             .background(Color.DarkGray)
+                                     ) {
+                                         Box(
+                                             modifier = Modifier
+                                                 .fillMaxHeight()
+                                                 .fillMaxWidth(fraction = if (percentage > 0f) percentage else 0.05f)
+                                                 .background(MaterialTheme.colorScheme.primary)
+                                         )
                                      }
                                  }
                              }

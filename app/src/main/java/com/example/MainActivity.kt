@@ -101,6 +101,7 @@ class MainActivity : ComponentActivity() {
             }
 
             // Overlay/Bottom Sheets controllers
+            var showNotificationsDialog by remember { mutableStateOf(false) }
             var showDiagnosticsDialog by remember { mutableStateOf(false) }
             var selectedProviderForDetail by remember { mutableStateOf<ServiceProvider?>(null) }
             var showBackdoorLoginDialog by remember { mutableStateOf(false) }
@@ -206,6 +207,27 @@ class MainActivity : ComponentActivity() {
                                             color = MaterialTheme.colorScheme.primary,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.width(8.dp))
+
+                                    // Notifications & Bookings Bell Icon Button
+                                    IconButton(
+                                        onClick = { showNotificationsDialog = true },
+                                        modifier = Modifier
+                                            .background(
+                                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                                                shape = RoundedCornerShape(12.dp)
+                                            )
+                                            .size(38.dp)
+                                            .testTag("notification_bell_btn")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Notifications,
+                                            contentDescription = "Notifications tracker",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(20.dp)
                                         )
                                     }
 
@@ -524,6 +546,13 @@ class MainActivity : ComponentActivity() {
                                 pendingCount = pendingProvidersList.size,
                                 chatsCount = chatsList.size,
                                 onDismiss = { showDiagnosticsDialog = false }
+                            )
+                        }
+
+                        if (showNotificationsDialog) {
+                            UserNotificationsAndBookingsDialog(
+                                isArabic = isArabic,
+                                onDismiss = { showNotificationsDialog = false }
                             )
                         }
 
@@ -1697,6 +1726,15 @@ fun ProviderDetailsDialog(
     onReportRequest: () -> Unit
 ) {
     val context = LocalContext.current
+    val configState = FirebaseManager.appConfig.collectAsState()
+    val config = configState.value
+
+    var bookName by remember { mutableStateOf("") }
+    var bookPhone by remember { mutableStateOf("") }
+    var bookDate by remember { mutableStateOf("") }
+    var bookTime by remember { mutableStateOf("") }
+    var bookNotes by remember { mutableStateOf("") }
+    var isBookingSuccess by remember { mutableStateOf(false) }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -1704,17 +1742,17 @@ fun ProviderDetailsDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(vertical = 12.dp)
-                .wrapContentHeight(),
+                .fillMaxHeight(0.85f),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
             LazyColumn(
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .fillMaxSize()
                     .padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Header Banner Logo
+                // Header Banner Close Button
                 item {
                     Box(modifier = Modifier.fillMaxWidth()) {
                         IconButton(onClick = onDismiss, modifier = Modifier.align(Alignment.TopEnd)) {
@@ -1733,7 +1771,26 @@ fun ProviderDetailsDialog(
 
                 // Profile Titles details
                 item {
-                    Text(text = provider.fullName, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = provider.fullName,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        if (provider.isVerified) {
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = "Verified Badge",
+                                tint = Color(0xFF2E7D32),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
                     Spacer(modifier = Modifier.height(4.dp))
 
                     Text(text = provider.subCategory, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
@@ -1768,46 +1825,156 @@ fun ProviderDetailsDialog(
                     }
                 }
 
-                // Call and Conversation Operations Panel
+                // Experience and Description Cards
                 item {
-                    Row(
+                    Card(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f))
                     ) {
-                        Button(
-                            onClick = {
-                                try {
-                                    val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${provider.phone}"))
-                                    context.startActivity(intent)
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "لا يمكن الاتصال بالرقم", Toast.LENGTH_SHORT).show()
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(Icons.Default.Phone, contentDescription = "Call")
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(text = if (isArabic) "اتصال هاتف" else "Call Phone", fontSize = 13.sp)
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (isArabic) "🛡️ سنوات الخبرة العملي:" else "🛡️ Professional Experience:",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.secondary
+                                )
+                                Text(
+                                    text = if (isArabic) "${provider.experienceYears} سنوات خبرة" else "${provider.experienceYears} Years",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = if (isArabic) "📝 نبذة عن الخدمة المقدمة:" else "📝 Work Overview:",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = if (isArabic) provider.workDescriptionAr else provider.workDescriptionEn,
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                // PORTFOLIO / GALLERY CHIPS - Works showcases
+                item {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.Start
+                    ) {
+                        Text(
+                            text = if (isArabic) "📸 صور من أعماله السابقة:" else "📸 Past Work Portfolio:",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        val portfolioList = if (provider.portfolioImages.isNotBlank()) {
+                            provider.portfolioImages.split(",")
+                        } else {
+                            listOf(
+                                "https://picsum.photos/400/300?tmp=p1",
+                                "https://picsum.photos/400/300?tmp=p2",
+                                "https://picsum.photos/400/300?tmp=p3"
+                            )
                         }
 
-                        Button(
-                            onClick = {
-                                try {
-                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://api.whatsapp.com/send?phone=${provider.whatsapp}"))
-                                    context.startActivity(intent)
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "تعذر تشغيل تطبيق واتساب", Toast.LENGTH_SHORT).show()
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.weight(1f)
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Icon(Icons.Default.Send, contentDescription = "WhatsApp")
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(text = if (isArabic) "واتساب" else "WhatsApp", fontSize = 13.sp, color = Color.White)
+                            items(portfolioList) { imgUrl ->
+                                Card(
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.width(130.dp).height(90.dp)
+                                ) {
+                                    AsyncImage(
+                                        model = imgUrl.trim(),
+                                        contentDescription = "Portfolio Work photo",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Call and Conversation Operations Panel (Checked with admin visibility control)
+                item {
+                    if (provider.hideProfileDetails) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(Icons.Default.Warning, contentDescription = "Hidden Details", tint = MaterialTheme.colorScheme.error)
+                                Text(
+                                    text = if (isArabic) "⚠️ قامت الإدارة بإخفاء معلومات الاتصال الخاصة بهذا المهني حالياً." else "⚠️ Direct contact details are restricted by administration.",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Button(
+                                onClick = {
+                                    try {
+                                        val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${provider.phone}"))
+                                        context.startActivity(intent)
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "لا يمكن الاتصال بالرقم", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.Phone, contentDescription = "Call")
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(text = if (isArabic) "اتصال هاتف" else "Call Phone", fontSize = 13.sp)
+                            }
+
+                            Button(
+                                onClick = {
+                                    try {
+                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://api.whatsapp.com/send?phone=${provider.whatsapp}"))
+                                        context.startActivity(intent)
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "تعذر تشغيل تطبيق واتساب", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.Send, contentDescription = "WhatsApp")
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(text = if (isArabic) "واتساب" else "WhatsApp", fontSize = 13.sp, color = Color.White)
+                            }
                         }
                     }
                 }
@@ -1825,7 +1992,7 @@ fun ProviderDetailsDialog(
                             Text(text = if (isArabic) "📍 العنوان بالتفصيل:" else "📍 Detail Location:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
                             Text(text = (provider.address.ifEmpty { "صنعاء، شارع السنين القريبي" }) + " - " + (provider.area.ifEmpty { "مديرية معين" }), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
 
-                            Divider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
 
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -1835,17 +2002,17 @@ fun ProviderDetailsDialog(
                                 Text(text = if (isArabic) "2.3 كم تقريباً" else "Approx 2.3 km", fontSize = 12.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
                             }
 
-                            Divider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
 
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text(text = if (isArabic) "📞 رقم الاتصال المباشر:" else "📞 Direct Phone:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
-                                Text(text = provider.phone.ifEmpty { "777644670" }, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                                Text(text = if (provider.hideProfileDetails) "🔒 مخفي" else provider.phone.ifEmpty { "777644670" }, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                             }
 
-                            Divider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
 
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -1858,6 +2025,129 @@ fun ProviderDetailsDialog(
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
+                            }
+                        }
+                    }
+                }
+
+                // BOOKING APPOINTMENTS FLOW (Admin managed, showing status PENDING, ACCEPTED, COMPLETED)
+                item {
+                    if (!config.bookingsEnabled) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = if (isArabic) "📅 قامت الإدارة بإيقاف ميزة الحجوزات مؤقتاً." else "📅 Appointments are disabled by Admin.",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
+                    } else {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f)),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f))
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Text(
+                                    text = if (isArabic) "📅 حجز موعد مباشر مع المهني" else "📅 Schedule direct service",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    text = if (isArabic) "ملاحظة الإدارة: تُرسل الحجوزات حالياً إلى: " + (if (config.bookingsRouteDirectToProvider) "مقدم الخدمة تفصيلياً" else "المركز الرئيسي للدعم")
+                                           else "Note: Bookings are handled by: " + (if (config.bookingsRouteDirectToProvider) "PROVIDER" else "ADMIN"),
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+
+                                if (isBookingSuccess) {
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = Color(0xFFE8F5E9),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(
+                                            text = if (isArabic) "✅ تم إرسال حجزك للجهة المختصة بنجاح وهو قيد الانتظار الحالي!" else "✅ Your booking request is placed successfully (Pending)!",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF2E7D32),
+                                            modifier = Modifier.padding(10.dp)
+                                        )
+                                    }
+                                } else {
+                                    OutlinedTextField(
+                                        value = bookName,
+                                        onValueChange = { bookName = it },
+                                        label = { Text(if (isArabic) "اسمك بالكامل" else "Name") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true
+                                    )
+                                    OutlinedTextField(
+                                        value = bookPhone,
+                                        onValueChange = { bookPhone = it },
+                                        label = { Text(if (isArabic) "رقم الجوال للتأكيد" else "Phone") },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true
+                                    )
+                                    OutlinedTextField(
+                                        value = bookDate,
+                                        onValueChange = { bookDate = it },
+                                        label = { Text(if (isArabic) "التاريخ المقترح (مثال: 2026-06-15)" else "Date (e.g., 2026-06-15)") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true
+                                    )
+                                    OutlinedTextField(
+                                        value = bookTime,
+                                        onValueChange = { bookTime = it },
+                                        label = { Text(if (isArabic) "الوقت المقترح (مثال: 10:00 صباحاً)" else "Time (e.g. 10:00 AM)") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true
+                                    )
+                                    OutlinedTextField(
+                                        value = bookNotes,
+                                        onValueChange = { bookNotes = it },
+                                        label = { Text(if (isArabic) "ملاحظات إضافية أو وصف العمل" else "Problem / Notes") },
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+
+                                    Button(
+                                        onClick = {
+                                            if (bookName.isBlank() || bookPhone.isBlank() || bookDate.isBlank() || bookTime.isBlank()) {
+                                                Toast.makeText(context, if (isArabic) "يرجى تعبئة كافة الحقول" else "Please fill all fields", Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                val b = ServiceBooking(
+                                                    id = UUID.randomUUID().toString(),
+                                                    providerId = provider.id,
+                                                    providerName = provider.fullName,
+                                                    userName = bookName,
+                                                    userPhone = bookPhone,
+                                                    bookingTime = "$bookDate $bookTime",
+                                                    status = "PENDING",
+                                                    notes = bookNotes
+                                                )
+                                                FirebaseManager.addBooking(b) {
+                                                    isBookingSuccess = true
+                                                    Toast.makeText(context, if (isArabic) "تم طلب الحجز بنجاح!" else "Booking requested!", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(12.dp)
+                                    ) {
+                                        Text(text = if (isArabic) "📅 إرسال وتأكيد الطلب" else "Request Appointment")
+                                    }
+                                }
                             }
                         }
                     }
@@ -3043,6 +3333,14 @@ fun BackdoorSettingsPanelLayout(
 
     // Helper Dialog state
     var showDeleteConfirmDialogForTechId by remember { mutableStateOf("") }
+
+    // New Broadcaster notification states
+    var alertTitleAr by remember { mutableStateOf("") }
+    var alertTitleEn by remember { mutableStateOf("") }
+    var alertContentAr by remember { mutableStateOf("") }
+    var alertContentEn by remember { mutableStateOf("") }
+    var alertIsPublic by remember { mutableStateOf(true) }
+    var alertTargetPhone by remember { mutableStateOf("") }
 
     // Sync input fields with model updates on launch
     LaunchedEffect(config) {
@@ -5032,6 +5330,362 @@ fun BackdoorSettingsPanelLayout(
             }
         }
 
+        // Tab 14: Bookings Management & Route Settings
+        item {
+            val allBookings by FirebaseManager.bookings.collectAsState()
+            AdminSectionAccordion(
+                title = if (isArabic) "📅 14. إدارة حجوزات العملاء وإعدادات المسار" else "14. Customer Bookings & Routing Hub",
+                isExpanded = expandedTabId == 13,
+                onHeaderClicked = { expandedTabId = if (expandedTabId == 13) -1 else 13 }
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    // Global Toggle & Switch
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                text = if (isArabic) "⚙️ إعدادات التحكم بالحجوزات الذكية:" else "⚙️ Core booking options:",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (isArabic) "تشغيل ميزة الحجوزات للعملاء بالتطبيق:" else "Enable direct booking widgets for users:",
+                                    fontSize = 11.sp
+                                )
+                                Switch(
+                                    checked = config.bookingsEnabled,
+                                    onCheckedChange = {
+                                        val updated = config.copy(bookingsEnabled = it)
+                                        FirebaseManager.saveAppConfig(updated)
+                                        Toast.makeText(context, if (it) "تم تفعيل نظام الحجوزات بالكامل!" else "تم إيقاف نظام الحجوزات مؤقتاً!", Toast.LENGTH_SHORT).show()
+                                        FirebaseManager.logActivity(adminName, "${if (it) "تفعيل" else "تعطيل"} ميزة الحجوزات العامة")
+                                    }
+                                )
+                            }
+
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
+
+                            Text(
+                                text = if (isArabic) "🎯 الجهة المستلمة وتوجيه الحجوزات المدخلة:" else "🎯 Direct booking recipient target routing:",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                val isDirect = config.bookingsRouteDirectToProvider
+                                Button(
+                                    onClick = {
+                                        val updated = config.copy(bookingsRouteDirectToProvider = true)
+                                        FirebaseManager.saveAppConfig(updated)
+                                        Toast.makeText(context, "تم تحويل مسار الحجوزات لمزود الخدمة فورا!", Toast.LENGTH_SHORT).show()
+                                        FirebaseManager.logActivity(adminName, "تعديل مسار الحجوزات ليرسل مباشرة لمقدم الخدمة")
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (isDirect) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                        contentColor = if (isDirect) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                    ),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(text = if (isArabic) "مقدم الخدمة تفصيلياً" else "To Provider Direct", fontSize = 10.sp)
+                                }
+
+                                Button(
+                                    onClick = {
+                                        val updated = config.copy(bookingsRouteDirectToProvider = false)
+                                        FirebaseManager.saveAppConfig(updated)
+                                        Toast.makeText(context, "تم توجيه مسار الحجوزات للمركز الرئيسي للدعم!", Toast.LENGTH_SHORT).show()
+                                        FirebaseManager.logActivity(adminName, "تعديل مسار الحجوزات ليرسل للمشرف الإداري")
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (!isDirect) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                        contentColor = if (!isDirect) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                    ),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(text = if (isArabic) "إدارة النظام الرئيسية" else "To Admin Office", fontSize = 10.sp)
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Text(
+                        text = if (isArabic) "📝 سجل طلبات الحجوزات الواردة حياً (${allBookings.size}):" else "📝 Current Live Appointment Requests (${allBookings.size}):",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    if (allBookings.isEmpty()) {
+                        Text(
+                            text = if (isArabic) "لا توجد أي حجوزات مدخلة مسبقاً بالنظام السحابي." else "No bookings recorded yet in cloud system.",
+                            fontSize = 11.sp,
+                            color = Color.Gray
+                        )
+                    } else {
+                        allBookings.forEach { b ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(text = b.providerName, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                        
+                                        val bStatusColor = when(b.status) {
+                                            "ACCEPTED" -> Color(0xFF2E7D32)
+                                            "COMPLETED" -> Color(0xFF0288D1)
+                                            else -> Color(0xFFE65100)
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .background(bStatusColor.copy(alpha = 0.1f), RoundedCornerShape(6.dp))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(text = b.status, color = bStatusColor, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(text = if (isArabic) "مقدم الطلب: ${b.userName} (${b.userPhone})" else "Requested by: ${b.userName} (${b.userPhone})", fontSize = 10.sp)
+                                    Text(text = if (isArabic) "ملاحظات الخدمة: ${b.notes}" else "Issue notes: ${b.notes}", fontSize = 10.sp)
+                                    Text(text = if (isArabic) "📅 الموعد المطلبي: ${b.bookingTime}" else "📅 Desired Timing: ${b.bookingTime}", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    // Actions Buttons
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        if (b.status == "PENDING") {
+                                            Button(
+                                                onClick = {
+                                                    FirebaseManager.updateBookingStatus(b.id, "ACCEPTED") {
+                                                        Toast.makeText(context, "تم قبول طلب الحجز وإشعار العميل!", Toast.LENGTH_SHORT).show()
+                                                        FirebaseManager.logActivity(adminName, "قبول طلب الحجز ذو الرمز ${b.id}")
+                                                    }
+                                                },
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
+                                                shape = RoundedCornerShape(6.dp),
+                                                modifier = Modifier.weight(1f),
+                                                contentPadding = PaddingValues(0.dp)
+                                            ) {
+                                                Text(text = if (isArabic) "قبول الموعد ✓" else "Accept", fontSize = 9.sp, color = Color.White)
+                                            }
+                                        }
+
+                                        if (b.status == "ACCEPTED") {
+                                            Button(
+                                                onClick = {
+                                                    FirebaseManager.updateBookingStatus(b.id, "COMPLETED") {
+                                                        Toast.makeText(context, "تم تمييز الحجز كمكتمل بنجاح!", Toast.LENGTH_SHORT).show()
+                                                        FirebaseManager.logActivity(adminName, "إنهاء واكتمال الخدمة للحجز ${b.id}")
+                                                    }
+                                                },
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0288D1)),
+                                                shape = RoundedCornerShape(6.dp),
+                                                modifier = Modifier.weight(1f),
+                                                contentPadding = PaddingValues(0.dp)
+                                            ) {
+                                                Text(text = if (isArabic) "تمييز كمكتمل 🎉" else "Complete", fontSize = 9.sp, color = Color.White)
+                                            }
+                                        }
+
+                                        IconButton(
+                                            onClick = {
+                                                FirebaseManager.deleteBooking(b.id) {
+                                                    Toast.makeText(context, "تم حذف وإلغاء الحجز تماماً!", Toast.LENGTH_SHORT).show()
+                                                    FirebaseManager.logActivity(adminName, "حذف كلي لطلب الحجز للعميل ${b.userName}")
+                                                }
+                                            },
+                                            modifier = Modifier.background(Color(0xFFD32F2F).copy(alpha = 0.1f), RoundedCornerShape(6.dp)).size(32.dp)
+                                        ) {
+                                            Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color(0xFFD32F2F), modifier = Modifier.size(16.dp))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Tab 15: Admin Broadcasts & Notifications Center
+        item {
+            val allNotificationsList by FirebaseManager.notifications.collectAsState()
+            AdminSectionAccordion(
+                title = if (isArabic) "✉️ 15. مركز الإشعارات والإنذارات البريدية والبث" else "15. Cloud Broadcasts & Targeted Alerts",
+                isExpanded = expandedTabId == 14,
+                onHeaderClicked = { expandedTabId = if (expandedTabId == 14) -1 else 14 }
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = if (isArabic) "📢 تركيب وبث إشعار إداري جديد:" else "📢 Compose and dispatch instant notification:",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    OutlinedTextField(
+                        value = alertTitleAr,
+                        onValueChange = { alertTitleAr = it },
+                        label = { Text(if (isArabic) "العنوان (باللغة العربية)" else "Title (Arabic)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+
+                    OutlinedTextField(
+                        value = alertTitleEn,
+                        onValueChange = { alertTitleEn = it },
+                        label = { Text(if (isArabic) "العنوان (باللغة الإنجليزية)" else "Title (English)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+
+                    OutlinedTextField(
+                        value = alertContentAr,
+                        onValueChange = { alertContentAr = it },
+                        label = { Text(if (isArabic) "محتوى الإشعار الرئيسي بالكامل (عربي)" else "Content text (Arabic)") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = alertContentEn,
+                        onValueChange = { alertContentEn = it },
+                        label = { Text(if (isArabic) "محتوى الإشعار الرئيسي بالكامل (إنجليزي)" else "Content text (English)") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(text = if (isArabic) "مجال الإشعار (بث عام للجميع):" else "Notification scope (Public Broadcast):", fontSize = 11.sp)
+                        Switch(
+                            checked = alertIsPublic,
+                            onCheckedChange = { alertIsPublic = it }
+                        )
+                    }
+
+                    if (!alertIsPublic) {
+                        OutlinedTextField(
+                            value = alertTargetPhone,
+                            onValueChange = { alertTargetPhone = it },
+                            label = { Text(if (isArabic) "رقم الهاتف المستهدف الحصري" else "Target Account Phone") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                    }
+
+                    Button(
+                        onClick = {
+                            if (alertTitleAr.isBlank() || alertContentAr.isBlank()) {
+                                Toast.makeText(context, "الرجاء تعبئة العنوان والمحتوى العربي على الأقل!", Toast.LENGTH_SHORT).show()
+                            } else {
+                                val notif = AppNotification(
+                                    id = UUID.randomUUID().toString(),
+                                    titleAr = alertTitleAr,
+                                    titleEn = alertTitleEn.ifEmpty { alertTitleAr },
+                                    contentAr = alertContentAr,
+                                    contentEn = alertContentEn.ifEmpty { alertContentAr },
+                                    isPublic = alertIsPublic,
+                                    targetId = if (alertIsPublic) "" else alertTargetPhone.trim()
+                                )
+                                FirebaseManager.sendNotification(notif) {
+                                    Toast.makeText(context, "تم بث وإرسال الإشعار الإلكتروني بنجاح!", Toast.LENGTH_SHORT).show()
+                                    FirebaseManager.logActivity(
+                                        adminName,
+                                        "بث إشعار جديد بعنوان: $alertTitleAr"
+                                    )
+                                    // Reset fields
+                                    alertTitleAr = ""
+                                    alertTitleEn = ""
+                                    alertContentAr = ""
+                                    alertContentEn = ""
+                                    alertTargetPhone = ""
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(text = if (isArabic) "🚀 إرسال وتوزيع الإشعار فوراً" else "Dispatch Alert Broadcast")
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text(
+                        text = if (isArabic) "📜 الإشعارات الصادرة والمسجلة بالنظام (${allNotificationsList.size}):" else "📜 Current Active Alerts System Registry (${allNotificationsList.size}):",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    if (allNotificationsList.isEmpty()) {
+                        Text(text = "لا توجد إشعارات مسجلة بالنظام.", fontSize = 11.sp, color = Color.Gray)
+                    } else {
+                        allNotificationsList.forEach { not ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp).fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(text = not.titleAr, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        Text(
+                                            text = if (not.isPublic) (if (isArabic) "📢 بث عام" else "📢 Public Scope")
+                                                   else (if (isArabic) "🔒 هاتف مستهدف: ${not.targetId}" else "🔒 Target phone: ${not.targetId}"),
+                                            fontSize = 9.sp,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = {
+                                            FirebaseManager.deleteNotification(not.id) {
+                                                Toast.makeText(context, "تم حذف واستبعاد الإشعار بنجاح!", Toast.LENGTH_SHORT).show()
+                                                FirebaseManager.logActivity(adminName, "حذف واستبعاد الإشعار ذو الرمز ${not.id}")
+                                            }
+                                        },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Red, modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = Color(0xFFD32F2F).copy(alpha = 0.08f)),
@@ -5184,6 +5838,301 @@ fun AdminSectionAccordion(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     content()
+                }
+            }
+        }
+    }
+}
+
+// ---------------------- USER NOTIFICATIONS & APPOINTMENTS TRACKING DIALOG ----------------------
+@Composable
+fun UserNotificationsAndBookingsDialog(
+    isArabic: Boolean,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    var queryPhone by remember { mutableStateOf("") }
+    val allNotifications by FirebaseManager.notifications.collectAsState()
+    val allBookings by FirebaseManager.bookings.collectAsState()
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(24.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 16.dp)
+                .fillMaxHeight(0.85f),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(20.dp)
+            ) {
+                // Header Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (isArabic) "🔔 الإشعارات وحالة الحجوزات" else "🔔 Alerts & Booking Status",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, contentDescription = "Close")
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Phone Input to track personal data
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = if (isArabic) "📱 ادخل رقم هاتفك لمتابعة حجوزاتك وإشعاراتك الخاصة:" else "📱 Enter your phone to query bookings & private alerts:",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            OutlinedTextField(
+                                value = queryPhone,
+                                onValueChange = { queryPhone = it },
+                                label = { Text(if (isArabic) "رقم الهاتف (الرقم المدخل بالحجز)" else "Phone Number") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                                singleLine = true,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // 1. Private / Target Bookings Status Section
+                    if (queryPhone.isNotBlank()) {
+                        val userBookings = allBookings.filter { it.userPhone.trim() == queryPhone.trim() }
+                        
+                        item {
+                            Text(
+                                text = if (isArabic) "📅 طلبات الحجز الخاصة بك (${userBookings.size})" else "📅 Your Booking History (${userBookings.size})",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+
+                        if (userBookings.isEmpty()) {
+                            item {
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
+                                ) {
+                                    Text(
+                                        text = if (isArabic) "لا توجد أي حجوزات مسجلة بهذا الرقم حالياً." else "No bookings recorded for this phone yet.",
+                                        fontSize = 11.sp,
+                                        modifier = Modifier.padding(12.dp),
+                                        textAlign = TextAlign.Center,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        } else {
+                            items(userBookings) { booking ->
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = booking.providerName,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            
+                                            // Booking Status Badge
+                                            val badgeColor = when(booking.status) {
+                                                "ACCEPTED" -> Color(0xFF2E7D32)
+                                                "COMPLETED" -> Color(0xFF0288D1)
+                                                else -> Color(0xFFE65100)
+                                            }
+                                            val badgeTextAr = when(booking.status) {
+                                                "ACCEPTED" -> "مقبول ومؤكد ✓"
+                                                "COMPLETED" -> "مكتمل بنجاح 🎉"
+                                                else -> "قيد الانتظار الحالي ⏳"
+                                            }
+                                            val badgeTextEn = when(booking.status) {
+                                                "ACCEPTED" -> "Accepted"
+                                                "COMPLETED" -> "Completed"
+                                                else -> "Pending"
+                                            }
+                                            Box(
+                                                modifier = Modifier
+                                                    .background(badgeColor.copy(alpha = 0.12f), RoundedCornerShape(8.dp))
+                                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                                            ) {
+                                                Text(
+                                                    text = if (isArabic) badgeTextAr else badgeTextEn,
+                                                    color = badgeColor,
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = if (isArabic) "🕒 الموعد: ${booking.bookingTime}" else "🕒 Schedule: ${booking.bookingTime}",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        if (booking.notes.isNotBlank()) {
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = if (isArabic) "📝 وصف الخدمة: ${booking.notes}" else "📝 Details: ${booking.notes}",
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 2. Personal Targeted Notifications Section
+                    if (queryPhone.isNotBlank()) {
+                        val personalAlerts = allNotifications.filter { !it.isPublic && it.targetId.trim() == queryPhone.trim() }
+                        
+                        item {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = if (isArabic) "✉️ إشعارات الحساب المباشرة (${personalAlerts.size})" else "✉️ Direct Account Notifications (${personalAlerts.size})",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+
+                        if (personalAlerts.isEmpty()) {
+                            item {
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f)
+                                ) {
+                                    Text(
+                                        text = if (isArabic) "لا توجد إشعارات مخصصة لحسابك حالياً." else "No direct notifications for your account.",
+                                        fontSize = 11.sp,
+                                        modifier = Modifier.padding(12.dp),
+                                        textAlign = TextAlign.Center,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        } else {
+                            items(personalAlerts) { alert ->
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.1f)),
+                                    border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.3f))
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp)) {
+                                        Text(
+                                            text = if (isArabic) alert.titleAr else alert.titleEn,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = if (isArabic) alert.contentAr else alert.contentEn,
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 3. General Public Notifications and Broadcasts Section
+                    val publicAlerts = allNotifications.filter { it.isPublic }
+                    item {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = if (isArabic) "📢 إعلانات وتحديثات الإدارة الشاملة (${publicAlerts.size})" else "📢 App Broadcasts & Admin Announcements (${publicAlerts.size})",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    if (publicAlerts.isEmpty()) {
+                        item {
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f)
+                              ) {
+                                Text(
+                                    text = if (isArabic) "لا توجد إعلانات عامة من الإدارة حالياً." else "No admin broadcasts available.",
+                                    fontSize = 11.sp,
+                                    modifier = Modifier.padding(12.dp),
+                                    textAlign = TextAlign.Center,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    } else {
+                        items(publicAlerts) { alert ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)),
+                                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Text(
+                                        text = if (isArabic) alert.titleAr else alert.titleEn,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = if (isArabic) alert.contentAr else alert.contentEn,
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

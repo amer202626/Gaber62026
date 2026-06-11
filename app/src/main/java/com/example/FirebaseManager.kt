@@ -46,6 +46,8 @@ object FirebaseManager {
     val commercialItems = MutableStateFlow<List<CommercialItem>>(emptyList())
     val citiesList = MutableStateFlow(listOf("صنعاء", "عدن", "تعز", "حضرموت", "الحديدة", "إب"))
     val isProvidersDataFromCache = MutableStateFlow(false)
+    val bookings = MutableStateFlow<List<ServiceBooking>>(emptyList())
+    val notifications = MutableStateFlow<List<AppNotification>>(emptyList())
 
     private val registrations = mutableListOf<ListenerRegistration>()
     private var activeChatListenerRegistration: ListenerRegistration? = null
@@ -149,6 +151,49 @@ object FirebaseManager {
                     }
                 }
             registrations.add(catReg)
+
+            // Bookings Snapshot Listener
+            val bookingReg = db.collection("bookings")
+                .addSnapshotListener { snapshots, error ->
+                    if (snapshots != null) {
+                        val items = snapshots.map { doc ->
+                            ServiceBooking(
+                                id = doc.id,
+                                providerId = doc.getString("providerId") ?: "",
+                                providerName = doc.getString("providerName") ?: "",
+                                userName = doc.getString("userName") ?: "",
+                                userPhone = doc.getString("userPhone") ?: "",
+                                bookingTime = doc.getString("bookingTime") ?: "",
+                                status = doc.getString("status") ?: "PENDING",
+                                notes = doc.getString("notes") ?: "",
+                                timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis()
+                            )
+                        }
+                        bookings.value = items
+                    }
+                }
+            registrations.add(bookingReg)
+
+            // Notifications Snapshot Listener
+            val notificationReg = db.collection("notifications")
+                .addSnapshotListener { snapshots, error ->
+                    if (snapshots != null) {
+                        val items = snapshots.map { doc ->
+                            AppNotification(
+                                id = doc.id,
+                                titleAr = doc.getString("titleAr") ?: "",
+                                titleEn = doc.getString("titleEn") ?: "",
+                                contentAr = doc.getString("contentAr") ?: "",
+                                contentEn = doc.getString("contentEn") ?: "",
+                                isPublic = doc.getBoolean("isPublic") ?: false,
+                                targetId = doc.getString("targetId") ?: "",
+                                timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis()
+                            )
+                        }.sortedByDescending { it.timestamp }
+                        notifications.value = items
+                    }
+                }
+            registrations.add(notificationReg)
 
             // 11. Custom Color Themes Listener
             val colorReg = db.collection("custom_colors")
@@ -261,7 +306,12 @@ object FirebaseManager {
                                 ratingSum = doc.getDouble("ratingSum")?.toFloat() ?: 0.0f,
                                 ratingCount = doc.getLong("ratingCount")?.toInt() ?: 0,
                                 isBlocked = doc.getBoolean("isBlocked") ?: false,
-                                previewPrice = doc.getDouble("previewPrice") ?: 0.0
+                                previewPrice = doc.getDouble("previewPrice") ?: 0.0,
+                                experienceYears = doc.getLong("experienceYears")?.toInt() ?: 3,
+                                portfolioImages = doc.getString("portfolioImages") ?: "",
+                                workDescriptionAr = doc.getString("workDescriptionAr") ?: "خبرة ممتازة في تصنيع وصيانة كافة الأعمال بمهنية وجودة عالية في اليمن.",
+                                workDescriptionEn = doc.getString("workDescriptionEn") ?: "Excellent professional experience in all maintenance and setup work in Yemen.",
+                                hideProfileDetails = doc.getBoolean("hideProfileDetails") ?: false
                             )
                         }
                         providers.value = items.filter { !it.isBlocked }
@@ -457,12 +507,31 @@ object FirebaseManager {
             "gpsLat" to p.gpsLat,
             "gpsLng" to p.gpsLng,
             "previewPrice" to p.previewPrice,
+            "experienceYears" to p.experienceYears,
+            "portfolioImages" to p.portfolioImages,
+            "workDescriptionAr" to p.workDescriptionAr,
+            "workDescriptionEn" to p.workDescriptionEn,
+            "hideProfileDetails" to p.hideProfileDetails,
             "timestamp" to System.currentTimeMillis()
         )
 
         db.collection("pending_providers").document(id).set(dataMap)
             .addOnSuccessListener {
                 logActivity("طلب إنضمام جديد", "مقدم جديد: ${p.fullName}")
+                val config = appConfig.value
+                if (config.notificationsAllEnabled) {
+                    sendNotification(
+                        AppNotification(
+                            id = UUID.randomUUID().toString(),
+                            titleAr = "تم استلام الطلب",
+                            titleEn = "Request Received",
+                            contentAr = config.notifyOnJoinRequestAr,
+                            contentEn = config.notifyOnJoinRequestEn,
+                            isPublic = false,
+                            targetId = p.phone
+                        )
+                    )
+                }
                 onComplete(true, "تم إرسال طلب الانضمام بنجاح! سيتم مراجعته وتوثيقه من قبل المشرفين قريباً جداً.")
             }
             .addOnFailureListener { e ->
@@ -492,20 +561,54 @@ object FirebaseManager {
             "ratingSum" to 5.0,
             "ratingCount" to 1,
             "isBlocked" to false,
-            "previewPrice" to candidate.previewPrice
+            "previewPrice" to candidate.previewPrice,
+            "experienceYears" to candidate.experienceYears,
+            "portfolioImages" to candidate.portfolioImages,
+            "workDescriptionAr" to candidate.workDescriptionAr,
+            "workDescriptionEn" to candidate.workDescriptionEn,
+            "hideProfileDetails" to candidate.hideProfileDetails
         )
 
         db.collection("service_providers").document(id).set(dataMap)
             .addOnSuccessListener {
                 db.collection("pending_providers").document(id).delete()
                 logActivity("المشرف", "الموافقة على الحرفي: ${candidate.fullName}")
+                val config = appConfig.value
+                if (config.notificationsAllEnabled) {
+                    sendNotification(
+                        AppNotification(
+                            id = UUID.randomUUID().toString(),
+                            titleAr = "تم تفعيل حسابك",
+                            titleEn = "Account Activated",
+                            contentAr = config.notifyOnJoinApproveAr,
+                            contentEn = config.notifyOnJoinApproveEn,
+                            isPublic = false,
+                            targetId = candidate.phone
+                        )
+                    )
+                }
                 onComplete()
             }
     }
 
     fun rejectProvider(id: String, reason: String, onComplete: () -> Unit = {}) {
+        val candidate = pendingProviders.value.find { it.id == id }
         db.collection("pending_providers").document(id).delete().addOnSuccessListener {
             logActivity("المشرف", "رفض الطلب $id للسبب: $reason")
+            val config = appConfig.value
+            if (candidate != null && config.notificationsAllEnabled) {
+                sendNotification(
+                    AppNotification(
+                        id = UUID.randomUUID().toString(),
+                        titleAr = "طلب الانضمام مرفوض",
+                        titleEn = "Join Request Rejected",
+                        contentAr = "${config.notifyOnJoinRejectAr} السبب: $reason",
+                        contentEn = "${config.notifyOnJoinRejectEn} Reason: $reason",
+                        isPublic = false,
+                        targetId = candidate.phone
+                    )
+                )
+            }
             onComplete()
         }
     }
@@ -539,7 +642,12 @@ object FirebaseManager {
             "ratingSum" to p.ratingSum,
             "ratingCount" to p.ratingCount,
             "isBlocked" to false,
-            "previewPrice" to p.previewPrice
+            "previewPrice" to p.previewPrice,
+            "experienceYears" to p.experienceYears,
+            "portfolioImages" to p.portfolioImages,
+            "workDescriptionAr" to p.workDescriptionAr,
+            "workDescriptionEn" to p.workDescriptionEn,
+            "hideProfileDetails" to p.hideProfileDetails
         )
 
         db.collection("service_providers").document(id).set(dataMap)
@@ -570,7 +678,12 @@ object FirebaseManager {
             "ratingSum" to p.ratingSum,
             "ratingCount" to p.ratingCount,
             "isBlocked" to p.isBlocked,
-            "previewPrice" to p.previewPrice
+            "previewPrice" to p.previewPrice,
+            "experienceYears" to p.experienceYears,
+            "portfolioImages" to p.portfolioImages,
+            "workDescriptionAr" to p.workDescriptionAr,
+            "workDescriptionEn" to p.workDescriptionEn,
+            "hideProfileDetails" to p.hideProfileDetails
         )
         db.collection("service_providers").document(p.id).set(dataMap)
             .addOnSuccessListener {
@@ -1107,6 +1220,100 @@ object FirebaseManager {
             } catch (e: Exception) {
                 onComplete(false, "حدثت مشكلة أثناء محاولة إعادة التهيئة والسيدر: ${e.message}")
             }
+        }
+    }
+
+    fun addBooking(b: ServiceBooking, onComplete: () -> Unit = {}) {
+        val id = b.id.ifEmpty { UUID.randomUUID().toString() }
+        val data = mapOf(
+            "id" to id,
+            "providerId" to b.providerId,
+            "providerName" to b.providerName,
+            "userName" to b.userName,
+            "userPhone" to b.userPhone,
+            "bookingTime" to b.bookingTime,
+            "status" to b.status,
+            "notes" to b.notes,
+            "timestamp" to b.timestamp
+        )
+        db.collection("bookings").document(id).set(data).addOnSuccessListener {
+            logActivity("حجز موعد", "طلب حجز جديد من ${b.userName} مع ${b.providerName}")
+            val config = appConfig.value
+            if (config.notificationsAllEnabled) {
+                sendNotification(
+                    AppNotification(
+                        id = UUID.randomUUID().toString(),
+                        titleAr = "طلب حجز قيد الانتظار",
+                        titleEn = "Booking Request Pending",
+                        contentAr = "تم تسجيل طلب حجز موعدك مع ${b.providerName} بنجاح وهو قيد الانتظار الحالي.",
+                        contentEn = "Your booking request with ${b.providerName} is now pending.",
+                        isPublic = false,
+                        targetId = b.userPhone
+                    )
+                )
+            }
+            onComplete()
+        }
+    }
+
+    fun updateBookingStatus(id: String, status: String, onComplete: () -> Unit = {}) {
+        db.collection("bookings").document(id).update("status", status).addOnSuccessListener {
+            logActivity("تحديث الحجز", "تعديل حالة الحجز $id لـ $status")
+            val b = bookings.value.find { it.id == id }
+            if (b != null && appConfig.value.notificationsAllEnabled) {
+                val statusTextAr = when(status) {
+                    "ACCEPTED" -> "مقبول"
+                    "COMPLETED" -> "مكتمل"
+                    else -> "قيد الانتظار"
+                }
+                val statusTextEn = when(status) {
+                    "ACCEPTED" -> "Accepted"
+                    "COMPLETED" -> "Completed"
+                    else -> "Pending"
+                }
+                sendNotification(
+                    AppNotification(
+                        id = UUID.randomUUID().toString(),
+                        titleAr = "تحديث حالة حجز الموعد",
+                        titleEn = "Booking Status Updated",
+                        contentAr = "تمت الموافقة وتحديث حالة حجزك مع ${b.providerName} إلى: $statusTextAr",
+                        contentEn = "Your booking status with ${b.providerName} has been updated to: $statusTextEn",
+                        isPublic = false,
+                        targetId = b.userPhone
+                    )
+                )
+            }
+            onComplete()
+        }
+    }
+
+    fun deleteBooking(id: String, onComplete: () -> Unit = {}) {
+        db.collection("bookings").document(id).delete().addOnSuccessListener {
+            logActivity("حذف حجز", "حذف حجز موعد ذو المعرف [$id]")
+            onComplete()
+        }
+    }
+
+    fun sendNotification(n: AppNotification, onComplete: () -> Unit = {}) {
+        val id = n.id.ifEmpty { UUID.randomUUID().toString() }
+        val data = mapOf(
+            "id" to id,
+            "titleAr" to n.titleAr,
+            "titleEn" to n.titleEn,
+            "contentAr" to n.contentAr,
+            "contentEn" to n.contentEn,
+            "isPublic" to n.isPublic,
+            "targetId" to n.targetId,
+            "timestamp" to n.timestamp
+        )
+        db.collection("notifications").document(id).set(data).addOnSuccessListener {
+            onComplete()
+        }
+    }
+
+    fun deleteNotification(id: String, onComplete: () -> Unit = {}) {
+        db.collection("notifications").document(id).delete().addOnSuccessListener {
+            onComplete()
         }
     }
 }

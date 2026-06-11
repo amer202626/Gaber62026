@@ -47,7 +47,20 @@ data class AppConfig(
     val searchBarVisible: Boolean = true,
     val searchPlaceholder: String = "ابحث عن مهندس، سباك، طبيب...",
     val searchPlaceholderEn: String = "Search plumber, doctor...",
-    val activeCustomColorId: String = ""
+    val activeCustomColorId: String = "",
+    
+    // NEW BOOKINGS & MAPS & NOTIFICATIONS CONFIGURATIONS
+    val bookingsEnabled: Boolean = true,
+    val bookingsRouteDirectToProvider: Boolean = true,
+    val bookingForwardDestination: String = "",
+    val mapFeatureEnabled: Boolean = true,
+    val notifyOnJoinRequestAr: String = "تم استلام طلب انضمامك، وجاري مراجعته والتحقق منه من قبل المشرفين.",
+    val notifyOnJoinRequestEn: String = "Your register request is received and currently under professional review.",
+    val notifyOnJoinApproveAr: String = "تهانينا الحارة! لقد تم قبول طلب تفعيل وتوثيق حسابك بنجاح في دليل اليمن الموحد.",
+    val notifyOnJoinApproveEn: String = "Congratulations! Your service provider account has been approved and fully verified.",
+    val notifyOnJoinRejectAr: String = "نأسف لإبلاغك بأنه تم رفض طلب انضمامك لعدم استيفاء بعض المعايير المطلوبة.",
+    val notifyOnJoinRejectEn: String = "We are sorry to inform you that your join request has been rejected.",
+    val notificationsAllEnabled: Boolean = true
 ) {
     fun toMap(): Map<String, Any> {
         return mapOf(
@@ -85,7 +98,20 @@ data class AppConfig(
             "searchBarVisible" to searchBarVisible,
             "searchPlaceholder" to searchPlaceholder,
             "searchPlaceholderEn" to searchPlaceholderEn,
-            "activeCustomColorId" to activeCustomColorId
+            "activeCustomColorId" to activeCustomColorId,
+            
+            // Map new configurations
+            "bookingsEnabled" to bookingsEnabled,
+            "bookingsRouteDirectToProvider" to bookingsRouteDirectToProvider,
+            "bookingForwardDestination" to bookingForwardDestination,
+            "mapFeatureEnabled" to mapFeatureEnabled,
+            "notifyOnJoinRequestAr" to notifyOnJoinRequestAr,
+            "notifyOnJoinRequestEn" to notifyOnJoinRequestEn,
+            "notifyOnJoinApproveAr" to notifyOnJoinApproveAr,
+            "notifyOnJoinApproveEn" to notifyOnJoinApproveEn,
+            "notifyOnJoinRejectAr" to notifyOnJoinRejectAr,
+            "notifyOnJoinRejectEn" to notifyOnJoinRejectEn,
+            "notificationsAllEnabled" to notificationsAllEnabled
         )
     }
 
@@ -130,7 +156,20 @@ data class AppConfig(
                 searchBarVisible = map["searchBarVisible"] as? Boolean ?: true,
                 searchPlaceholder = map["searchPlaceholder"] as? String ?: "ابحث عن مهندس، سباك، طبيب...",
                 searchPlaceholderEn = map["searchPlaceholderEn"] as? String ?: "Search plumber, doctor...",
-                activeCustomColorId = map["activeCustomColorId"] as? String ?: ""
+                activeCustomColorId = map["activeCustomColorId"] as? String ?: "",
+                
+                // Map from map
+                bookingsEnabled = map["bookingsEnabled"] as? Boolean ?: true,
+                bookingsRouteDirectToProvider = map["bookingsRouteDirectToProvider"] as? Boolean ?: true,
+                bookingForwardDestination = map["bookingForwardDestination"] as? String ?: "",
+                mapFeatureEnabled = map["mapFeatureEnabled"] as? Boolean ?: true,
+                notifyOnJoinRequestAr = map["notifyOnJoinRequestAr"] as? String ?: "تم استلام طلب انضمامك، وجاري مراجعته والتحقق منه من قبل المشرفين.",
+                notifyOnJoinRequestEn = map["notifyOnJoinRequestEn"] as? String ?: "Your register request is received and currently under review.",
+                notifyOnJoinApproveAr = map["notifyOnJoinApproveAr"] as? String ?: "تهانينا الحارة! لقد تم قبول طلب تفعيل وتوثيق حسابك بنجاح في دليل اليمن الموحد.",
+                notifyOnJoinApproveEn = map["notifyOnJoinApproveEn"] as? String ?: "Congratulations! Your service provider account has been approved and fully verified.",
+                notifyOnJoinRejectAr = map["notifyOnJoinRejectAr"] as? String ?: "نأسف لإبلاغك بأنه تم رفض طلب انضمامك لعدم استيفاء بعض المعايير المطلوبة.",
+                notifyOnJoinRejectEn = map["notifyOnJoinRejectEn"] as? String ?: "We are sorry to inform you that your join request has been rejected.",
+                notificationsAllEnabled = map["notificationsAllEnabled"] as? Boolean ?: true
             )
         }
     }
@@ -209,11 +248,41 @@ data class ServiceProvider(
     val ratingSum: Float = 0.0f,
     val ratingCount: Int = 0,
     val isBlocked: Boolean = false,
-    val previewPrice: Double = 0.0
+    val previewPrice: Double = 0.0,
+    
+    // Detailed Profile Attributes
+    val experienceYears: Int = 3,
+    val portfolioImages: String = "", // Comma-separated image URLs (mocked or uploaded)
+    val workDescriptionAr: String = "خبرة ممتازة في تصنيع وصيانة كافة الأعمال بمهنية وجودة عالية في اليمن.",
+    val workDescriptionEn: String = "Excellent professional experience in all maintenance and setup work in Yemen.",
+    val hideProfileDetails: Boolean = false
 ) {
     val averageRating: Float
         get() = if (ratingCount > 0) ratingSum / ratingCount else 0.0f
 }
+
+data class ServiceBooking(
+    val id: String = "",
+    val providerId: String = "",
+    val providerName: String = "",
+    val userName: String = "",
+    val userPhone: String = "",
+    val bookingTime: String = "", // Format: "YYYY-MM-DD HH:MM"
+    val status: String = "PENDING", // PENDING, ACCEPTED, COMPLETED
+    val notes: String = "",
+    val timestamp: Long = System.currentTimeMillis()
+)
+
+data class AppNotification(
+    val id: String = "",
+    val titleAr: String = "",
+    val titleEn: String = "",
+    val contentAr: String = "",
+    val contentEn: String = "",
+    val isPublic: Boolean = false,
+    val targetId: String = "", // Specific providerId, phone, or 'admin'
+    val timestamp: Long = System.currentTimeMillis()
+)
 
 data class BannerAd(
     val id: String = "",

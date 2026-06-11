@@ -279,7 +279,9 @@ object FirebaseManager {
                             Moderator(
                                 id = doc.id,
                                 username = doc.getString("username") ?: "",
-                                password = doc.getString("password") ?: ""
+                                password = doc.getString("password") ?: "",
+                                secretKey = doc.getString("secretKey") ?: doc.getString("password") ?: "",
+                                permissions = doc.getString("permissions") ?: ""
                             )
                         }
                         moderators.value = items
@@ -506,6 +508,20 @@ object FirebaseManager {
         } else {
             val data = mapOf("nameAr" to nameAr, "nameEn" to nameEn, "iconEmoji" to iconEmoji)
             docRef.set(data).addOnSuccessListener { onComplete() }
+        }
+    }
+
+    fun manageModerator(username: String, secretKey: String, permissions: String, isDelete: Boolean = false, onComplete: () -> Unit = {}) {
+        val docRef = db.collection("moderators").document(username)
+        if (isDelete) {
+            docRef.delete().addOnCompleteListener { onComplete() }
+        } else {
+            val data = mapOf(
+                "username" to username,
+                "secretKey" to secretKey,
+                "permissions" to permissions
+            )
+            docRef.set(data).addOnCompleteListener { onComplete() }
         }
     }
 

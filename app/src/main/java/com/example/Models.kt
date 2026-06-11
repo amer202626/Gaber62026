@@ -3,9 +3,12 @@ package com.example
 import java.util.UUID
 
 enum class AppThemeType {
-    COSMIC_SILVER, // 🌌 كوزميك سيلفر
-    GOLD_LUXURY,   // ✨ الذهبي الفاخر
-    EMERALD_CLASSIC // 🟢 الزمردي الراقي
+    COSMIC_SILVER,   // 🌌 كوزميك سيلفر
+    GOLD_LUXURY,     // ✨ الذهبي الفاخر
+    EMERALD_CLASSIC, // 🟢 الزمردي الراقي
+    SMOKY_BLACK,     // 🌌 الأسود الدخاني
+    LIGHT_PINK,      // 🌸 الزهري الفاتح
+    GOLDEN_WHITE     // ✨ الأبيض الذهبي
 }
 
 data class AppConfig(
@@ -201,5 +204,7 @@ data class ActivityLog(
 data class Moderator(
     val id: String = "",
     val username: String = "",
-    val password: String = ""
+    val password: String = "",
+    val secretKey: String = "",
+    val permissions: String = ""
 )

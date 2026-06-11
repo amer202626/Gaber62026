@@ -27,6 +27,27 @@ val EmeraldPrimary = Color(0xFF10B981) // Pure Emerald Green
 val EmeraldSecondary = Color(0xFF34D399) // Mint Accent
 val EmeraldTertiary = Color(0xFF6EE7B7) // Bright Aquamarine
 
+// Smoky Black Colors
+val SmokyBackground = Color(0xFF121212)
+val SmokySurface = Color(0xFF1E1E1E)
+val SmokyPrimary = Color(0xFFE0E0E0)
+val SmokySecondary = Color(0xFF9E9E9E)
+val SmokyTertiary = Color(0xFF616161)
+
+// Light Pink Colors
+val PinkBackground = Color(0xFF221115)
+val PinkSurface = Color(0xFF351B22)
+val PinkPrimary = Color(0xFFFFB7C5)
+val PinkSecondary = Color(0xFFF472B6)
+val PinkTertiary = Color(0xFFFDA4AF)
+
+// Golden White Colors
+val GoldenWhiteBackground = Color(0xFF1E1E24)
+val GoldenWhiteSurface = Color(0xFF2A2A32)
+val GoldenWhitePrimary = Color(0xFFFDFDFD)
+val GoldenWhiteSecondary = Color(0xFFFFD700)
+val GoldenWhiteTertiary = Color(0xFFF1E4C3)
+
 @Composable
 fun InteractiveYemenTheme(
     themeType: AppThemeType,
@@ -67,6 +88,42 @@ fun InteractiveYemenTheme(
             onSurface = Color.White,
             onPrimary = Color(0xFF002211),
             onSecondary = Color(0xFF002211),
+            onTertiary = Color.White
+        )
+        AppThemeType.SMOKY_BLACK -> darkColorScheme(
+            background = SmokyBackground,
+            surface = SmokySurface,
+            primary = SmokyPrimary,
+            secondary = SmokySecondary,
+            tertiary = SmokyTertiary,
+            onBackground = Color.White,
+            onSurface = Color.White,
+            onPrimary = Color(0xFF121212),
+            onSecondary = Color.White,
+            onTertiary = Color.White
+        )
+        AppThemeType.LIGHT_PINK -> darkColorScheme(
+            background = PinkBackground,
+            surface = PinkSurface,
+            primary = PinkPrimary,
+            secondary = PinkSecondary,
+            tertiary = PinkTertiary,
+            onBackground = Color.White,
+            onSurface = Color.White,
+            onPrimary = Color(0xFF221115),
+            onSecondary = Color.White,
+            onTertiary = Color.White
+        )
+        AppThemeType.GOLDEN_WHITE -> darkColorScheme(
+            background = GoldenWhiteBackground,
+            surface = GoldenWhiteSurface,
+            primary = GoldenWhitePrimary,
+            secondary = GoldenWhiteSecondary,
+            tertiary = GoldenWhiteTertiary,
+            onBackground = Color.White,
+            onSurface = Color.White,
+            onPrimary = Color(0xFF1E1E24),
+            onSecondary = Color(0xFF1E1E24),
             onTertiary = Color.White
         )
     }

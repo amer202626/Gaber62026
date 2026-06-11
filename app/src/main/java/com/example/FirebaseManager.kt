@@ -2,14 +2,6 @@ package com.example
 
 import android.content.Context
 import android.util.Log
-import com.google.firebase.FirebaseApp
-import com.google.firebase.FirebaseOptions
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.FirebaseFirestoreSettings
-import com.google.firebase.firestore.ListenerRegistration
-import com.google.firebase.firestore.MetadataChanges
-import com.google.firebase.firestore.Query
-import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.CoroutineScope
@@ -19,18 +11,17 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import java.util.UUID
 
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
+
 object FirebaseManager {
     private const val TAG = "FirebaseManager"
     private val managerScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
-    private var isRetrying = false
 
     private val _isInitialized = MutableStateFlow(false)
     val isInitialized: StateFlow<Boolean> = _isInitialized
 
-    lateinit var db: FirebaseFirestore
-    lateinit var storage: FirebaseStorage
-
-    // State flows representing actual synchronized memory caches for instant offline rendering
+    // State flows representing global real-time cloud data pools
     val appConfig = MutableStateFlow(AppConfig())
     val categories = MutableStateFlow<List<ServiceCategory>>(emptyList())
     val providers = MutableStateFlow<List<ServiceProvider>>(emptyList())
@@ -49,443 +40,231 @@ object FirebaseManager {
     val bookings = MutableStateFlow<List<ServiceBooking>>(emptyList())
     val notifications = MutableStateFlow<List<AppNotification>>(emptyList())
 
-    private val registrations = mutableListOf<ListenerRegistration>()
-    private var activeChatListenerRegistration: ListenerRegistration? = null
+    private val db get() = FirebaseFirestore.getInstance()
+    private val listeners = mutableListOf<ListenerRegistration>()
 
     fun init(context: Context) {
         if (_isInitialized.value) return
         try {
-            val builder = FirebaseOptions.Builder()
-                .setApplicationId("1:89823302013:android:1910d098b23f547aa3fc14")
-                .setApiKey("AIzaSyCgFnPJso1f2mwB1jvyRbGzZReAdf4eug0")
-                .setProjectId("dalyly2026")
-                .setStorageBucket("dalyly2026.firebasestorage.app")
-                .build()
-
-            val apps = FirebaseApp.getApps(context)
-            val app = if (apps.isEmpty()) {
-                try {
-                    FirebaseApp.initializeApp(context)
-                } catch (autoEx: Exception) {
-                    FirebaseApp.initializeApp(context, builder)
-                }
-            } else {
-                apps.firstOrNull { it.name == FirebaseApp.DEFAULT_APP_NAME } ?: FirebaseApp.initializeApp(context, builder)
-            }
-
-            db = FirebaseFirestore.getInstance(app!!)
-            storage = FirebaseStorage.getInstance(app!!)
-
-            // Dynamic Firebase Anonymous Auth
-            try {
-                val auth = com.google.firebase.auth.FirebaseAuth.getInstance(app!!)
-                if (auth.currentUser == null) {
-                    auth.signInAnonymously().addOnCompleteListener { task ->
-                        if (task.isSuccessful) {
-                            Log.d(TAG, "FirebaseAuth active: ${task.result?.user?.uid}")
-                            forceReSubscribe()
-                        }
-                    }
-                } else {
-                    Log.d(TAG, "FirebaseAuth recovered: ${auth.currentUser?.uid}")
-                }
-            } catch (ex: Exception) {
-                Log.w(TAG, "Auth initialization warning: ${ex.message}")
-            }
-
-            // Setup offline storage
-            try {
-                val settings = FirebaseFirestoreSettings.Builder()
-                    .setPersistenceEnabled(true)
-                    .setCacheSizeBytes(FirebaseFirestoreSettings.CACHE_SIZE_UNLIMITED)
-                    .build()
-                db.firestoreSettings = settings
-            } catch (ex: Exception) {
-                Log.w(TAG, "Firestore settings already applied")
-            }
-
-            db.enableNetwork().addOnCompleteListener {
-                startListening()
-            }
-
+            startListeningToAll()
             _isInitialized.value = true
-            seedDefaultCategories()
-
         } catch (e: Exception) {
-            Log.e(TAG, "Critical Firebase Initialization Error: ${e.message}")
+            Log.e(TAG, "Firebase Initialization Error: ${e.message}")
             _isInitialized.value = true
         }
     }
 
-    private fun startListening() {
-        if (!_isInitialized.value) return
-        try {
-            // 1. App configuration Document listener
-            val configReg = db.collection("app_config").document("settings")
-                .addSnapshotListener(MetadataChanges.EXCLUDE) { snapshot, error ->
-                    if (snapshot != null && snapshot.exists()) {
-                        val map = snapshot.data
-                        if (map != null) {
-                            appConfig.value = AppConfig.fromMap(map)
-                        }
-                    } else {
-                        appConfig.value = AppConfig()
-                    }
+    fun startListeningToAll() {
+        removeAllListeners()
+
+        // 1. AppConfig
+        listeners.add(db.collection("app_config").document("main").addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                Log.e(TAG, "Error listening to app_config: ${error.message}")
+                return@addSnapshotListener
+            }
+            if (snapshot != null && snapshot.exists()) {
+                val data = snapshot.data
+                if (data != null) {
+                    appConfig.value = AppConfig.fromMap(data)
                 }
-            registrations.add(configReg)
+            } else {
+                val defConfig = AppConfig(
+                    appName = "دليل الخدمات اليمني الموحد",
+                    themeType = AppThemeType.COSMIC_SILVER,
+                    logoEmoji = "🇾🇪",
+                    welcomeMessage = "مرحباً بكم في الدليل الرقمي والوطني الموحد لخدمات وحرف اليمن 2026!",
+                    mainAdminPass = "maher736462"
+                )
+                saveAppConfig(defConfig)
+            }
+        })
 
-            // 2. Categories Snapshot Listener
-            val catReg = db.collection("categories")
-                .addSnapshotListener { snapshots, error ->
-                    if (snapshots != null) {
-                        val items = snapshots.map { doc ->
-                            ServiceCategory(
-                                id = doc.id,
-                                nameAr = doc.getString("nameAr") ?: "",
-                                nameEn = doc.getString("nameEn") ?: "",
-                                iconEmoji = doc.getString("iconEmoji") ?: "🎒",
-                                parentId = doc.getString("parentId") ?: ""
-                            )
-                        }
-                        categories.value = items
-                    }
+        // 2. Categories
+        listeners.add(db.collection("categories").addSnapshotListener { snapshot, error ->
+            if (error != null) return@addSnapshotListener
+            if (snapshot != null) {
+                val list = snapshot.documents.mapNotNull { doc ->
+                    doc.data?.let { serviceCategoryFromMap(doc.id, it) }
                 }
-            registrations.add(catReg)
-
-            // Bookings Snapshot Listener
-            val bookingReg = db.collection("bookings")
-                .addSnapshotListener { snapshots, error ->
-                    if (snapshots != null) {
-                        val items = snapshots.map { doc ->
-                            ServiceBooking(
-                                id = doc.id,
-                                providerId = doc.getString("providerId") ?: "",
-                                providerName = doc.getString("providerName") ?: "",
-                                userName = doc.getString("userName") ?: "",
-                                userPhone = doc.getString("userPhone") ?: "",
-                                bookingTime = doc.getString("bookingTime") ?: "",
-                                status = doc.getString("status") ?: "PENDING",
-                                notes = doc.getString("notes") ?: "",
-                                timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis()
-                            )
-                        }
-                        bookings.value = items
-                    }
+                categories.value = list
+                if (list.isEmpty()) {
+                    seedDefaultCategories()
                 }
-            registrations.add(bookingReg)
+            }
+        })
 
-            // Notifications Snapshot Listener
-            val notificationReg = db.collection("notifications")
-                .addSnapshotListener { snapshots, error ->
-                    if (snapshots != null) {
-                        val items = snapshots.map { doc ->
-                            AppNotification(
-                                id = doc.id,
-                                titleAr = doc.getString("titleAr") ?: "",
-                                titleEn = doc.getString("titleEn") ?: "",
-                                contentAr = doc.getString("contentAr") ?: "",
-                                contentEn = doc.getString("contentEn") ?: "",
-                                isPublic = doc.getBoolean("isPublic") ?: false,
-                                targetId = doc.getString("targetId") ?: "",
-                                timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis()
-                            )
-                        }.sortedByDescending { it.timestamp }
-                        notifications.value = items
-                    }
+        // 3. Providers
+        listeners.add(db.collection("providers").addSnapshotListener { snapshot, error ->
+            if (error != null) return@addSnapshotListener
+            if (snapshot != null) {
+                val list = snapshot.documents.mapNotNull { doc ->
+                    doc.data?.let { serviceProviderFromMap(doc.id, it) }
                 }
-            registrations.add(notificationReg)
-
-            // 11. Custom Color Themes Listener
-            val colorReg = db.collection("custom_colors")
-                .addSnapshotListener { snapshots, error ->
-                    if (snapshots != null) {
-                        val items = snapshots.map { doc ->
-                            CustomColorTheme(
-                                id = doc.id,
-                                nameAr = doc.getString("nameAr") ?: "لون مخصص",
-                                nameEn = doc.getString("nameEn") ?: "Custom Color",
-                                backgroundHex = doc.getString("backgroundHex") ?: "#FF0F1016",
-                                surfaceHex = doc.getString("surfaceHex") ?: "#FF1E2230",
-                                surfaceVariantHex = doc.getString("surfaceVariantHex") ?: "#FF24293D",
-                                primaryHex = doc.getString("primaryHex") ?: "#FFE2E8F0",
-                                secondaryHex = doc.getString("secondaryHex") ?: "#FF38BDF8",
-                                tertiaryHex = doc.getString("tertiaryHex") ?: "#FF818CF8",
-                                outlineHex = doc.getString("outlineHex") ?: "#FF475569"
-                            )
-                        }
-                        customColors.value = items
-                    }
+                providers.value = list
+                isProvidersDataFromCache.value = false
+                if (list.isEmpty()) {
+                    seedDefaultProviders()
                 }
-            registrations.add(colorReg)
+            }
+        })
 
-            // 12. Commercial Categories Listener
-            val commCatReg = db.collection("commercial_categories")
-                .addSnapshotListener { snapshots, error ->
-                    if (snapshots != null) {
-                        val items = snapshots.map { doc ->
-                            CommercialCategory(
-                                id = doc.id,
-                                nameAr = doc.getString("nameAr") ?: "",
-                                nameEn = doc.getString("nameEn") ?: "",
-                                iconEmoji = doc.getString("iconEmoji") ?: "🛒",
-                                imageUrl = doc.getString("imageUrl") ?: ""
-                            )
-                        }
-                        commercialCategories.value = items
-                    }
+        // 4. Pending Providers
+        listeners.add(db.collection("pending_providers").addSnapshotListener { snapshot, error ->
+            if (error != null) return@addSnapshotListener
+            if (snapshot != null) {
+                pendingProviders.value = snapshot.documents.mapNotNull { doc ->
+                    doc.data?.let { serviceProviderFromMap(doc.id, it) }
                 }
-            registrations.add(commCatReg)
+            }
+        })
 
-            // 13. Commercial Shops Listener
-            val commShopReg = db.collection("commercial_shops")
-                .addSnapshotListener { snapshots, error ->
-                    if (snapshots != null) {
-                        val items = snapshots.map { doc ->
-                            CommercialShop(
-                                id = doc.id,
-                                nameAr = doc.getString("nameAr") ?: "",
-                                nameEn = doc.getString("nameEn") ?: "",
-                                phone = doc.getString("phone") ?: "",
-                                whatsapp = doc.getString("whatsapp") ?: "",
-                                address = doc.getString("address") ?: "",
-                                logoUrl = doc.getString("logoUrl") ?: ""
-                            )
-                        }
-                        commercialShops.value = items
-                    }
+        // 5. Banners
+        listeners.add(db.collection("banners").addSnapshotListener { snapshot, error ->
+            if (error != null) return@addSnapshotListener
+            if (snapshot != null) {
+                val list = snapshot.documents.mapNotNull { doc ->
+                    doc.data?.let { bannerAdFromMap(doc.id, it) }
                 }
-            registrations.add(commShopReg)
-
-            // 14. Commercial Items Listener
-            val commItemReg = db.collection("commercial_items")
-                .addSnapshotListener { snapshots, error ->
-                    if (snapshots != null) {
-                        val items = snapshots.map { doc ->
-                            CommercialItem(
-                                id = doc.id,
-                                categoryId = doc.getString("categoryId") ?: "",
-                                shopId = doc.getString("shopId") ?: "",
-                                nameAr = doc.getString("nameAr") ?: "",
-                                nameEn = doc.getString("nameEn") ?: "",
-                                price = doc.getDouble("price") ?: 0.0,
-                                quantity = (doc.getLong("quantity") ?: 0L).toInt(),
-                                imageUrl = doc.getString("imageUrl") ?: "",
-                                description = doc.getString("description") ?: "",
-                                deliveryMethods = doc.getString("deliveryMethods") ?: "توصيل منزلي"
-                            )
-                        }
-                        commercialItems.value = items
-                    }
+                banners.value = list
+                if (list.isEmpty()) {
+                    seedDefaultBanners()
                 }
-            registrations.add(commItemReg)
+            }
+        })
 
-            // 3. Service Providers Profile listener
-            val provReg = db.collection("service_providers")
-                .addSnapshotListener { snapshots, error ->
-                    if (snapshots != null) {
-                        isProvidersDataFromCache.value = snapshots.metadata.isFromCache
-                        val items = snapshots.map { doc ->
-                            ServiceProvider(
-                                id = doc.id,
-                                fullName = doc.getString("fullName") ?: "",
-                                phone = doc.getString("phone") ?: "",
-                                whatsapp = doc.getString("whatsapp") ?: "",
-                                categoryId = doc.getString("categoryId") ?: "",
-                                subCategory = doc.getString("subCategory") ?: "",
-                                address = doc.getString("address") ?: "",
-                                area = doc.getString("area") ?: "",
-                                imageUrl = doc.getString("imageUrl") ?: "",
-                                idCardUrl = doc.getString("idCardUrl") ?: "",
-                                gpsLat = doc.getDouble("gpsLat") ?: 15.3694,
-                                gpsLng = doc.getDouble("gpsLng") ?: 44.1910,
-                                isVerified = doc.getBoolean("isVerified") ?: false,
-                                isPinned = doc.getBoolean("isPinned") ?: false,
-                                isRecommended = doc.getBoolean("isRecommended") ?: false,
-                                hasPremiumSubscription = doc.getBoolean("hasPremiumSubscription") ?: false,
-                                loyaltyPoints = doc.getLong("loyaltyPoints")?.toInt() ?: 0,
-                                ratingSum = doc.getDouble("ratingSum")?.toFloat() ?: 0.0f,
-                                ratingCount = doc.getLong("ratingCount")?.toInt() ?: 0,
-                                isBlocked = doc.getBoolean("isBlocked") ?: false,
-                                previewPrice = doc.getDouble("previewPrice") ?: 0.0,
-                                experienceYears = doc.getLong("experienceYears")?.toInt() ?: 3,
-                                portfolioImages = doc.getString("portfolioImages") ?: "",
-                                workDescriptionAr = doc.getString("workDescriptionAr") ?: "خبرة ممتازة في تصنيع وصيانة كافة الأعمال بمهنية وجودة عالية في اليمن.",
-                                workDescriptionEn = doc.getString("workDescriptionEn") ?: "Excellent professional experience in all maintenance and setup work in Yemen.",
-                                hideProfileDetails = doc.getBoolean("hideProfileDetails") ?: false
-                            )
-                        }
-                        providers.value = items.filter { !it.isBlocked }
-                    }
+        // 6. Chats
+        listeners.add(db.collection("chats").addSnapshotListener { snapshot, error ->
+            if (error != null) return@addSnapshotListener
+            if (snapshot != null) {
+                chats.value = snapshot.documents.mapNotNull { doc ->
+                    doc.data?.let { chatMessageFromMap(doc.id, it) }
+                }.sortedBy { it.timestamp }
+            }
+        })
+
+        // 7. Incident Reports
+        listeners.add(db.collection("incident_reports").addSnapshotListener { snapshot, error ->
+            if (error != null) return@addSnapshotListener
+            if (snapshot != null) {
+                incidentReports.value = snapshot.documents.mapNotNull { doc ->
+                    doc.data?.let { incidentReportFromMap(doc.id, it) }
                 }
-            registrations.add(provReg)
+            }
+        })
 
-            // 4. Pending Candidates Approval listener
-            val pendingReg = db.collection("pending_providers")
-                .addSnapshotListener { snapshots, error ->
-                    if (snapshots != null) {
-                        val items = snapshots.map { doc ->
-                            ServiceProvider(
-                                id = doc.id,
-                                fullName = doc.getString("fullName") ?: "",
-                                phone = doc.getString("phone") ?: "",
-                                whatsapp = doc.getString("whatsapp") ?: "",
-                                categoryId = doc.getString("categoryId") ?: "",
-                                subCategory = doc.getString("subCategory") ?: "",
-                                address = doc.getString("address") ?: "",
-                                area = doc.getString("area") ?: "",
-                                imageUrl = doc.getString("imageUrl") ?: "",
-                                idCardUrl = doc.getString("idCardUrl") ?: "",
-                                gpsLat = doc.getDouble("gpsLat") ?: 15.369,
-                                gpsLng = doc.getDouble("gpsLng") ?: 44.191,
-                                isVerified = false,
-                                isPinned = false,
-                                isRecommended = false,
-                                hasPremiumSubscription = false,
-                                ratingSum = 0.0f,
-                                ratingCount = 0,
-                                previewPrice = doc.getDouble("previewPrice") ?: 0.0
-                            )
-                        }
-                        pendingProviders.value = items
-                    }
+        // 8. Activity Logs
+        listeners.add(db.collection("activity_logs").addSnapshotListener { snapshot, error ->
+            if (error != null) return@addSnapshotListener
+            if (snapshot != null) {
+                activityLogs.value = snapshot.documents.mapNotNull { doc ->
+                    doc.data?.let { activityLogFromMap(doc.id, it) }
+                }.sortedByDescending { it.timestamp }
+            }
+        })
+
+        // 9. Moderators
+        listeners.add(db.collection("moderators").addSnapshotListener { snapshot, error ->
+            if (error != null) return@addSnapshotListener
+            if (snapshot != null) {
+                moderators.value = snapshot.documents.mapNotNull { doc ->
+                    doc.data?.let { moderatorFromMap(doc.id, it) }
                 }
-            registrations.add(pendingReg)
+            }
+        })
 
-            // 5. Banners Promo Ads
-            val banReg = db.collection("banners")
-                .addSnapshotListener { snapshots, error ->
-                    if (snapshots != null) {
-                        val items = snapshots.map { doc ->
-                            BannerAd(
-                                id = doc.id,
-                                title = doc.getString("title") ?: "",
-                                imageUrl = doc.getString("imageUrl") ?: "",
-                                linkUrl = doc.getString("linkUrl") ?: "",
-                                displaySize = doc.getString("displaySize") ?: "M",
-                                durationSeconds = doc.getLong("durationSeconds")?.toInt() ?: 5,
-                                isActive = doc.getBoolean("isActive") ?: true
-                            )
-                        }
-                        banners.value = items.filter { it.isActive }
-                    }
+        // 10. Custom Colors
+        listeners.add(db.collection("custom_colors").addSnapshotListener { snapshot, error ->
+            if (error != null) return@addSnapshotListener
+            if (snapshot != null) {
+                val list = snapshot.documents.mapNotNull { doc ->
+                    doc.data?.let { customColorThemeFromMap(doc.id, it) }
                 }
-            registrations.add(banReg)
-
-            // 6. Direct Messenger Sync Listener
-            startListeningToChats()
-
-            // 7. Incident Reports for moderators
-            val incReg = db.collection("incident_reports")
-                .addSnapshotListener { snapshots, error ->
-                    if (snapshots != null) {
-                        val items = snapshots.map { doc ->
-                            IncidentReport(
-                                id = doc.id,
-                                providerId = doc.getString("providerId") ?: "",
-                                providerName = doc.getString("providerName") ?: "",
-                                reporterName = doc.getString("reporterName") ?: "مجهول",
-                                reason = doc.getString("reason") ?: "",
-                                timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis()
-                            )
-                        }
-                        incidentReports.value = items
-                    }
+                customColors.value = list
+                if (list.isEmpty()) {
+                    seedDefaultCustomColors()
                 }
-            registrations.add(incReg)
+            }
+        })
 
-            // 8. Security audit Logs listener
-            val logReg = db.collection("activity_logs")
-                .addSnapshotListener { snapshots, error ->
-                    if (snapshots != null) {
-                        val items = snapshots.map { doc ->
-                            ActivityLog(
-                                id = doc.id,
-                                user = doc.getString("user") ?: "Admin",
-                                action = doc.getString("action") ?: "",
-                                timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis()
-                            )
-                        }.sortedByDescending { it.timestamp }
-                        activityLogs.value = items
-                    }
+        // 11. Commercial Categories
+        listeners.add(db.collection("commercial_categories").addSnapshotListener { snapshot, error ->
+            if (error != null) return@addSnapshotListener
+            if (snapshot != null) {
+                val list = snapshot.documents.mapNotNull { doc ->
+                    doc.data?.let { commercialCategoryFromMap(doc.id, it) }
                 }
-            registrations.add(logReg)
-
-            // 9. Managers/Moderators list
-            val modReg = db.collection("moderators")
-                .addSnapshotListener { snapshots, error ->
-                    if (snapshots != null) {
-                        val items = snapshots.map { doc ->
-                            Moderator(
-                                id = doc.id,
-                                username = doc.getString("username") ?: "",
-                                password = doc.getString("password") ?: "",
-                                secretKey = doc.getString("secretKey") ?: doc.getString("password") ?: "",
-                                permissions = doc.getString("permissions") ?: ""
-                            )
-                        }
-                        moderators.value = items
-                    }
+                commercialCategories.value = list
+                if (list.isEmpty()) {
+                    seedDefaultCommercialCategories()
                 }
-            registrations.add(modReg)
+            }
+        })
 
-        } catch (e: Exception) {
-            Log.e(TAG, "Error registering listeners: ${e.message}")
-        }
+        // 12. Commercial Shops
+        listeners.add(db.collection("commercial_shops").addSnapshotListener { snapshot, error ->
+            if (error != null) return@addSnapshotListener
+            if (snapshot != null) {
+                val list = snapshot.documents.mapNotNull { doc ->
+                    doc.data?.let { commercialShopFromMap(doc.id, it) }
+                }
+                commercialShops.value = list
+                if (list.isEmpty()) {
+                    seedDefaultCommercialShops()
+                }
+            }
+        })
+
+        // 13. Commercial Items
+        listeners.add(db.collection("commercial_items").addSnapshotListener { snapshot, error ->
+            if (error != null) return@addSnapshotListener
+            if (snapshot != null) {
+                val list = snapshot.documents.mapNotNull { doc ->
+                    doc.data?.let { commercialItemFromMap(doc.id, it) }
+                }
+                commercialItems.value = list
+                if (list.isEmpty()) {
+                    seedDefaultCommercialItems()
+                }
+            }
+        })
+
+        // 14. Bookings
+        listeners.add(db.collection("bookings").addSnapshotListener { snapshot, error ->
+            if (error != null) return@addSnapshotListener
+            if (snapshot != null) {
+                bookings.value = snapshot.documents.mapNotNull { doc ->
+                    doc.data?.let { serviceBookingFromMap(doc.id, it) }
+                }.sortedByDescending { it.timestamp }
+            }
+        })
+
+        // 15. Notifications
+        listeners.add(db.collection("notifications").addSnapshotListener { snapshot, error ->
+            if (error != null) return@addSnapshotListener
+            if (snapshot != null) {
+                notifications.value = snapshot.documents.mapNotNull { doc ->
+                    doc.data?.let { appNotificationFromMap(doc.id, it) }
+                }.sortedByDescending { it.timestamp }
+            }
+        })
     }
 
     fun startListeningToChats(onUpdate: (List<ChatMessage>) -> Unit = {}) {
-        activeChatListenerRegistration?.remove()
-        try {
-            activeChatListenerRegistration = db.collection("chats")
-                .addSnapshotListener { snapshots, error ->
-                    if (snapshots != null) {
-                        val items = snapshots.map { doc ->
-                            ChatMessage(
-                                id = doc.id,
-                                senderId = doc.getString("senderId") ?: "",
-                                senderName = doc.getString("senderName") ?: "ضيف يمني",
-                                receiverId = doc.getString("receiverId") ?: "admin",
-                                content = doc.getString("content") ?: "",
-                                timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis()
-                            )
-                        }.sortedBy { it.timestamp }
-                        chats.value = items
-                        onUpdate(items)
-                    }
-                }
-        } catch (e: Exception) {
-            Log.e(TAG, "Chat listener error: ${e.message}")
-        }
+        onUpdate(chats.value)
     }
 
     fun removeAllListeners() {
-        synchronized(registrations) {
-            registrations.forEach {
-                try { it.remove() } catch (ignored: Exception) {}
-            }
-            registrations.clear()
-        }
-        activeChatListenerRegistration?.remove()
-        activeChatListenerRegistration = null
+        listeners.forEach { it.remove() }
+        listeners.clear()
     }
 
     fun forceReSubscribe() {
-        removeAllListeners()
-        try {
-            db.enableNetwork().addOnCompleteListener {
-                startListening()
-            }
-        } catch (e: Exception) {
-            startListening()
-        }
+        startListeningToAll()
     }
 
     fun saveAppConfig(config: AppConfig) {
-        if (_isInitialized.value) {
-            db.collection("app_config").document("settings").set(config.toMap())
-        } else {
-            appConfig.value = config
-        }
+        db.collection("app_config").document("main").set(config.toMap())
     }
 
     fun submitCandidateProvider(p: ServiceProvider, imageBytes: ByteArray?, idCardBytes: ByteArray?, onComplete: (Boolean, String) -> Unit) {
@@ -493,751 +272,242 @@ object FirebaseManager {
         val profileUrl = if (p.imageUrl.isEmpty()) "https://picsum.photos/200/300?tmp=${UUID.randomUUID()}" else p.imageUrl
         val idCardUrl = if (p.idCardUrl.isEmpty()) "https://picsum.photos/400/300?tmp=${UUID.randomUUID()}" else p.idCardUrl
 
-        val dataMap = mapOf(
-            "id" to id,
-            "fullName" to p.fullName,
-            "phone" to p.phone,
-            "whatsapp" to p.whatsapp,
-            "categoryId" to p.categoryId,
-            "subCategory" to p.subCategory,
-            "address" to p.address,
-            "area" to p.area,
-            "imageUrl" to profileUrl,
-            "idCardUrl" to idCardUrl,
-            "gpsLat" to p.gpsLat,
-            "gpsLng" to p.gpsLng,
-            "previewPrice" to p.previewPrice,
-            "experienceYears" to p.experienceYears,
-            "portfolioImages" to p.portfolioImages,
-            "workDescriptionAr" to p.workDescriptionAr,
-            "workDescriptionEn" to p.workDescriptionEn,
-            "hideProfileDetails" to p.hideProfileDetails,
-            "timestamp" to System.currentTimeMillis()
-        )
+        val newPending = p.copy(id = id, imageUrl = profileUrl, idCardUrl = idCardUrl)
+        db.collection("pending_providers").document(id).set(newPending.toMap())
 
-        db.collection("pending_providers").document(id).set(dataMap)
-            .addOnSuccessListener {
-                logActivity("طلب إنضمام جديد", "مقدم جديد: ${p.fullName}")
-                val config = appConfig.value
-                if (config.notificationsAllEnabled) {
-                    sendNotification(
-                        AppNotification(
-                            id = UUID.randomUUID().toString(),
-                            titleAr = "تم استلام الطلب",
-                            titleEn = "Request Received",
-                            contentAr = config.notifyOnJoinRequestAr,
-                            contentEn = config.notifyOnJoinRequestEn,
-                            isPublic = false,
-                            targetId = p.phone
-                        )
-                    )
-                }
-                onComplete(true, "تم إرسال طلب الانضمام بنجاح! سيتم مراجعته وتوثيقه من قبل المشرفين قريباً جداً.")
-            }
-            .addOnFailureListener { e ->
-                onComplete(false, "عذراً تعذر إدخال الطلب: ${e.message}")
-            }
+        logActivity("طلب إنضمام جديد", "مقدم جديد: ${p.fullName}")
+
+        val config = appConfig.value
+        if (config.notificationsAllEnabled) {
+            sendNotification(
+                AppNotification(
+                    id = UUID.randomUUID().toString(),
+                    titleAr = "تم استلام الطلب",
+                    titleEn = "Request Received",
+                    contentAr = config.notifyOnJoinRequestAr,
+                    contentEn = config.notifyOnJoinRequestEn,
+                    isPublic = false,
+                    targetId = p.phone
+                )
+            )
+        }
+        onComplete(true, "تم إرسال طلب الانضمام بنجاح! سيتم مراجعته وتوثيقه من قبل المشرفين قريباً جداً.")
     }
 
     fun approveProvider(id: String, onComplete: () -> Unit = {}) {
         val candidate = pendingProviders.value.find { it.id == id } ?: return
-        val dataMap = mapOf(
-            "fullName" to candidate.fullName,
-            "phone" to candidate.phone,
-            "whatsapp" to candidate.whatsapp,
-            "categoryId" to candidate.categoryId,
-            "subCategory" to candidate.subCategory,
-            "address" to candidate.address,
-            "area" to candidate.area,
-            "imageUrl" to candidate.imageUrl,
-            "idCardUrl" to candidate.idCardUrl,
-            "gpsLat" to candidate.gpsLat,
-            "gpsLng" to candidate.gpsLng,
-            "isVerified" to true,
-            "isPinned" to false,
-            "isRecommended" to false,
-            "hasPremiumSubscription" to false,
-            "loyaltyPoints" to 50, // bonus start points
-            "ratingSum" to 5.0,
-            "ratingCount" to 1,
-            "isBlocked" to false,
-            "previewPrice" to candidate.previewPrice,
-            "experienceYears" to candidate.experienceYears,
-            "portfolioImages" to candidate.portfolioImages,
-            "workDescriptionAr" to candidate.workDescriptionAr,
-            "workDescriptionEn" to candidate.workDescriptionEn,
-            "hideProfileDetails" to candidate.hideProfileDetails
+        val approved = candidate.copy(
+            isVerified = true,
+            isPinned = false,
+            isRecommended = false,
+            hasPremiumSubscription = false,
+            loyaltyPoints = 50,
+            ratingSum = 5.0f,
+            ratingCount = 1,
+            isBlocked = false
         )
 
-        db.collection("service_providers").document(id).set(dataMap)
-            .addOnSuccessListener {
-                db.collection("pending_providers").document(id).delete()
-                logActivity("المشرف", "الموافقة على الحرفي: ${candidate.fullName}")
-                val config = appConfig.value
-                if (config.notificationsAllEnabled) {
-                    sendNotification(
-                        AppNotification(
-                            id = UUID.randomUUID().toString(),
-                            titleAr = "تم تفعيل حسابك",
-                            titleEn = "Account Activated",
-                            contentAr = config.notifyOnJoinApproveAr,
-                            contentEn = config.notifyOnJoinApproveEn,
-                            isPublic = false,
-                            targetId = candidate.phone
-                        )
-                    )
-                }
-                onComplete()
-            }
+        db.collection("pending_providers").document(id).delete()
+        db.collection("providers").document(id).set(approved.toMap())
+
+        logActivity("المشرف", "الموافقة على الحرفي: ${candidate.fullName}")
+
+        val config = appConfig.value
+        if (config.notificationsAllEnabled) {
+            sendNotification(
+                AppNotification(
+                    id = UUID.randomUUID().toString(),
+                    titleAr = "تم تفعيل حسابك",
+                    titleEn = "Account Activated",
+                    contentAr = config.notifyOnJoinApproveAr,
+                    contentEn = config.notifyOnJoinApproveEn,
+                    isPublic = false,
+                    targetId = candidate.phone
+                )
+            )
+        }
+        onComplete()
     }
 
     fun rejectProvider(id: String, reason: String, onComplete: () -> Unit = {}) {
         val candidate = pendingProviders.value.find { it.id == id }
-        db.collection("pending_providers").document(id).delete().addOnSuccessListener {
-            logActivity("المشرف", "رفض الطلب $id للسبب: $reason")
-            val config = appConfig.value
-            if (candidate != null && config.notificationsAllEnabled) {
-                sendNotification(
-                    AppNotification(
-                        id = UUID.randomUUID().toString(),
-                        titleAr = "طلب الانضمام مرفوض",
-                        titleEn = "Join Request Rejected",
-                        contentAr = "${config.notifyOnJoinRejectAr} السبب: $reason",
-                        contentEn = "${config.notifyOnJoinRejectEn} Reason: $reason",
-                        isPublic = false,
-                        targetId = candidate.phone
-                    )
+        db.collection("pending_providers").document(id).delete()
+
+        logActivity("المشرف", "رفض الطلب $id للسبب: $reason")
+
+        val config = appConfig.value
+        if (candidate != null && config.notificationsAllEnabled) {
+            sendNotification(
+                AppNotification(
+                    id = UUID.randomUUID().toString(),
+                    titleAr = "طلب الانضمام مرفوض",
+                    titleEn = "Join Request Rejected",
+                    contentAr = "${config.notifyOnJoinRejectAr} السبب: $reason",
+                    contentEn = "${config.notifyOnJoinRejectEn} Reason: $reason",
+                    isPublic = false,
+                    targetId = candidate.phone
                 )
-            }
-            onComplete()
+            )
         }
+        onComplete()
     }
 
     fun deleteProvider(id: String, onComplete: () -> Unit = {}) {
-        db.collection("service_providers").document(id).delete().addOnSuccessListener {
-            logActivity("المشرف", "حزف مقدم الخدمة ذو المعرف [$id]")
-            onComplete()
-        }
+        db.collection("providers").document(id).delete()
+        logActivity("المشرف", "حزف مقدم الخدمة ذو المعرف [$id]")
+        onComplete()
     }
 
     fun addManualProvider(p: ServiceProvider, onComplete: () -> Unit) {
-        val id = UUID.randomUUID().toString()
-        val dataMap = mapOf(
-            "fullName" to p.fullName,
-            "phone" to p.phone,
-            "whatsapp" to p.whatsapp,
-            "categoryId" to p.categoryId,
-            "subCategory" to p.subCategory,
-            "address" to p.address,
-            "area" to p.area,
-            "imageUrl" to p.imageUrl.ifEmpty { "https://picsum.photos/200/300?id=${UUID.randomUUID()}" },
-            "idCardUrl" to "https://picsum.photos/400/300",
-            "gpsLat" to p.gpsLat,
-            "gpsLng" to p.gpsLng,
-            "isVerified" to p.isVerified,
-            "isPinned" to p.isPinned,
-            "isRecommended" to p.isRecommended,
-            "hasPremiumSubscription" to p.hasPremiumSubscription,
-            "loyaltyPoints" to p.loyaltyPoints,
-            "ratingSum" to p.ratingSum,
-            "ratingCount" to p.ratingCount,
-            "isBlocked" to false,
-            "previewPrice" to p.previewPrice,
-            "experienceYears" to p.experienceYears,
-            "portfolioImages" to p.portfolioImages,
-            "workDescriptionAr" to p.workDescriptionAr,
-            "workDescriptionEn" to p.workDescriptionEn,
-            "hideProfileDetails" to p.hideProfileDetails
+        val id = if (p.id.isEmpty()) UUID.randomUUID().toString() else p.id
+        val newP = p.copy(
+            id = id,
+            imageUrl = p.imageUrl.ifEmpty { "https://picsum.photos/200/300?id=${UUID.randomUUID()}" },
+            idCardUrl = "https://picsum.photos/400/300"
         )
 
-        db.collection("service_providers").document(id).set(dataMap)
-            .addOnSuccessListener {
-                logActivity("المشرف", "إضافة مهني يدوياً: ${p.fullName}")
-                onComplete()
-            }
+        db.collection("providers").document(id).set(newP.toMap())
+        logActivity("المشرف", "إضافة مهني يدوياً: ${p.fullName}")
+        onComplete()
     }
 
     fun updateProviderDetails(p: ServiceProvider, onComplete: () -> Unit = {}) {
-        val dataMap = mapOf(
-            "fullName" to p.fullName,
-            "phone" to p.phone,
-            "whatsapp" to p.whatsapp,
-            "categoryId" to p.categoryId,
-            "subCategory" to p.subCategory,
-            "address" to p.address,
-            "area" to p.area,
-            "imageUrl" to p.imageUrl,
-            "idCardUrl" to p.idCardUrl,
-            "gpsLat" to p.gpsLat,
-            "gpsLng" to p.gpsLng,
-            "isVerified" to p.isVerified,
-            "isPinned" to p.isPinned,
-            "isRecommended" to p.isRecommended,
-            "hasPremiumSubscription" to p.hasPremiumSubscription,
-            "loyaltyPoints" to p.loyaltyPoints,
-            "ratingSum" to p.ratingSum,
-            "ratingCount" to p.ratingCount,
-            "isBlocked" to p.isBlocked,
-            "previewPrice" to p.previewPrice,
-            "experienceYears" to p.experienceYears,
-            "portfolioImages" to p.portfolioImages,
-            "workDescriptionAr" to p.workDescriptionAr,
-            "workDescriptionEn" to p.workDescriptionEn,
-            "hideProfileDetails" to p.hideProfileDetails
-        )
-        db.collection("service_providers").document(p.id).set(dataMap)
-            .addOnSuccessListener {
-                logActivity("المشرف", "تعديل بيانات الحرفي المهني: ${p.fullName}")
-                onComplete()
-            }
-            .addOnFailureListener { onComplete() }
+        db.collection("providers").document(p.id).set(p.toMap())
+        logActivity("المشرف", "تعديل بيانات الحرفي المهني: ${p.fullName}")
+        onComplete()
     }
 
     fun updateProviderStatus(id: String, isVerified: Boolean, isPinned: Boolean, isRecom: Boolean, isPremium: Boolean, onComplete: () -> Unit = {}) {
-        val updates = mapOf(
-            "isVerified" to isVerified,
-            "isPinned" to isPinned,
-            "isRecommended" to isRecom,
-            "hasPremiumSubscription" to isPremium
+        val p = providers.value.find { it.id == id } ?: return
+        val updated = p.copy(
+            isVerified = isVerified,
+            isPinned = isPinned,
+            isRecommended = isRecom,
+            hasPremiumSubscription = isPremium
         )
-        db.collection("service_providers").document(id).update(updates).addOnSuccessListener { onComplete() }
+        db.collection("providers").document(id).set(updated.toMap())
+        onComplete()
     }
 
     fun manageCategory(id: String, nameAr: String, nameEn: String, iconEmoji: String, parentId: String = "", isDelete: Boolean = false, onComplete: () -> Unit = {}) {
-        val docRef = db.collection("categories").document(id)
         if (isDelete) {
-            docRef.delete().addOnSuccessListener { onComplete() }
+            db.collection("categories").document(id).delete().addOnCompleteListener { onComplete() }
         } else {
-            val data = mapOf(
-                "nameAr" to nameAr,
-                "nameEn" to nameEn,
-                "iconEmoji" to iconEmoji,
-                "parentId" to parentId
-            )
-            docRef.set(data).addOnSuccessListener { onComplete() }
+            val item = ServiceCategory(id, nameAr, nameEn, iconEmoji, parentId)
+            db.collection("categories").document(id).set(item.toMap()).addOnCompleteListener { onComplete() }
         }
     }
 
     fun manageCustomColor(theme: CustomColorTheme, isDelete: Boolean = false, onComplete: () -> Unit = {}) {
-        val docRef = db.collection("custom_colors").document(theme.id)
         if (isDelete) {
-            docRef.delete().addOnSuccessListener { onComplete() }
+            db.collection("custom_colors").document(theme.id).delete().addOnCompleteListener { onComplete() }
         } else {
-            val data = mapOf(
-                "id" to theme.id,
-                "nameAr" to theme.nameAr,
-                "nameEn" to theme.nameEn,
-                "backgroundHex" to theme.backgroundHex,
-                "surfaceHex" to theme.surfaceHex,
-                "surfaceVariantHex" to theme.surfaceVariantHex,
-                "primaryHex" to theme.primaryHex,
-                "secondaryHex" to theme.secondaryHex,
-                "tertiaryHex" to theme.tertiaryHex,
-                "outlineHex" to theme.outlineHex
-            )
-            docRef.set(data).addOnSuccessListener { onComplete() }
+            db.collection("custom_colors").document(theme.id).set(theme.toMap()).addOnCompleteListener { onComplete() }
         }
     }
 
     fun manageCommercialCategory(cat: CommercialCategory, isDelete: Boolean = false, onComplete: () -> Unit = {}) {
-        val docRef = db.collection("commercial_categories").document(cat.id)
         if (isDelete) {
-            docRef.delete().addOnSuccessListener { onComplete() }
+            db.collection("commercial_categories").document(cat.id).delete().addOnCompleteListener { onComplete() }
         } else {
-            val data = mapOf(
-                "id" to cat.id,
-                "nameAr" to cat.nameAr,
-                "nameEn" to cat.nameEn,
-                "iconEmoji" to cat.iconEmoji,
-                "imageUrl" to cat.imageUrl
-            )
-            docRef.set(data).addOnSuccessListener { onComplete() }
+            db.collection("commercial_categories").document(cat.id).set(cat.toMap()).addOnCompleteListener { onComplete() }
         }
     }
 
     fun manageCommercialShop(shop: CommercialShop, isDelete: Boolean = false, onComplete: () -> Unit = {}) {
-        val docRef = db.collection("commercial_shops").document(shop.id)
         if (isDelete) {
-            docRef.delete().addOnSuccessListener { onComplete() }
+            db.collection("commercial_shops").document(shop.id).delete().addOnCompleteListener { onComplete() }
         } else {
-            val data = mapOf(
-                "id" to shop.id,
-                "nameAr" to shop.nameAr,
-                "nameEn" to shop.nameEn,
-                "phone" to shop.phone,
-                "whatsapp" to shop.whatsapp,
-                "address" to shop.address,
-                "logoUrl" to shop.logoUrl
-            )
-            docRef.set(data).addOnSuccessListener { onComplete() }
+            db.collection("commercial_shops").document(shop.id).set(shop.toMap()).addOnCompleteListener { onComplete() }
         }
     }
 
     fun manageCommercialItem(item: CommercialItem, isDelete: Boolean = false, onComplete: () -> Unit = {}) {
-        val docRef = db.collection("commercial_items").document(item.id)
         if (isDelete) {
-            docRef.delete().addOnSuccessListener { onComplete() }
+            db.collection("commercial_items").document(item.id).delete().addOnCompleteListener { onComplete() }
         } else {
-            val data = mapOf(
-                "id" to item.id,
-                "categoryId" to item.categoryId,
-                "shopId" to item.shopId,
-                "nameAr" to item.nameAr,
-                "nameEn" to item.nameEn,
-                "price" to item.price,
-                "quantity" to item.quantity,
-                "imageUrl" to item.imageUrl,
-                "description" to item.description,
-                "deliveryMethods" to item.deliveryMethods
-            )
-            docRef.set(data).addOnSuccessListener { onComplete() }
+            db.collection("commercial_items").document(item.id).set(item.toMap()).addOnCompleteListener { onComplete() }
         }
     }
 
     fun manageModerator(username: String, secretKey: String, permissions: String, isDelete: Boolean = false, onComplete: () -> Unit = {}) {
-        val docRef = db.collection("moderators").document(username)
         if (isDelete) {
-            docRef.delete().addOnCompleteListener { onComplete() }
+            db.collection("moderators").document(username).delete().addOnCompleteListener { onComplete() }
         } else {
-            val data = mapOf(
-                "username" to username,
-                "secretKey" to secretKey,
-                "permissions" to permissions
-            )
-            docRef.set(data).addOnCompleteListener { onComplete() }
+            val item = Moderator(id = username, username = username, password = secretKey, secretKey = secretKey, permissions = permissions)
+            db.collection("moderators").document(username).set(item.toMap()).addOnCompleteListener { onComplete() }
         }
     }
 
     fun sendChatMessage(msg: ChatMessage, onComplete: () -> Unit = {}) {
-        val id = UUID.randomUUID().toString()
-        val docData = mapOf(
-            "senderId" to msg.senderId,
-            "senderName" to msg.senderName,
-            "receiverId" to msg.receiverId,
-            "content" to msg.content,
-            "timestamp" to msg.timestamp
-        )
-        db.collection("chats").document(id).set(docData).addOnSuccessListener { onComplete() }
+        val id = if (msg.id.isEmpty()) UUID.randomUUID().toString() else msg.id
+        val newMsg = msg.copy(id = id)
+        db.collection("chats").document(id).set(newMsg.toMap()).addOnCompleteListener { onComplete() }
     }
 
     fun wipeChatLogs(onComplete: () -> Unit = {}) {
-        db.collection("chats").get().addOnSuccessListener { snapshots ->
+        db.collection("chats").get().addOnSuccessListener { snaps ->
             val batch = db.batch()
-            snapshots.forEach { batch.delete(it.reference) }
-            batch.commit().addOnSuccessListener {
+            for (doc in snaps) {
+                batch.delete(doc.reference)
+            }
+            batch.commit().addOnCompleteListener {
                 logActivity("المدير", "تم تفريغ المحادثات بالكامل.")
                 onComplete()
             }
-        }.addOnFailureListener { onComplete() }
+        }.addOnFailureListener {
+            onComplete()
+        }
     }
 
     fun manageBanner(b: BannerAd, isDelete: Boolean = false, onComplete: () -> Unit = {}) {
-        val id = b.id.ifEmpty { UUID.randomUUID().toString() }
-        val docRef = db.collection("banners").document(id)
+        val id = if (b.id.isEmpty()) UUID.randomUUID().toString() else b.id
+        val item = b.copy(id = id, imageUrl = b.imageUrl.ifEmpty { "https://picsum.photos/600/300?v=${UUID.randomUUID()}" })
+
         if (isDelete) {
-            docRef.delete().addOnSuccessListener { onComplete() }
+            db.collection("banners").document(id).delete().addOnCompleteListener { onComplete() }
         } else {
-            val data = mapOf(
-                "title" to b.title,
-                "imageUrl" to b.imageUrl.ifEmpty { "https://picsum.photos/600/300?v=${UUID.randomUUID()}" },
-                "linkUrl" to b.linkUrl,
-                "displaySize" to b.displaySize,
-                "durationSeconds" to b.durationSeconds,
-                "isActive" to b.isActive
-            )
-            docRef.set(data).addOnSuccessListener { onComplete() }
+            db.collection("banners").document(id).set(item.toMap()).addOnCompleteListener { onComplete() }
         }
     }
 
     fun blockProvider(id: String, isBlock: Boolean, onComplete: () -> Unit = {}) {
-        db.collection("service_providers").document(id).update("isBlocked", isBlock)
-            .addOnSuccessListener {
-                logActivity("المشرف", "تغيير حالة حظر المهني $id إلى $isBlock")
-                onComplete()
-            }
+        val p = providers.value.find { it.id == id } ?: return
+        val updated = p.copy(isBlocked = isBlock)
+        db.collection("providers").document(id).set(updated.toMap()).addOnCompleteListener {
+            logActivity("المشرف", "تغيير حالة حظر المهني $id إلى $isBlock")
+            onComplete()
+        }
     }
 
     fun addProviderReview(r: ProviderReview, onComplete: () -> Unit = {}) {
-        val id = UUID.randomUUID().toString()
-        val docData = mapOf(
-            "providerId" to r.providerId,
-            "reviewerName" to r.reviewerName,
-            "rating" to r.rating,
-            "comment" to r.comment,
-            "timestamp" to r.timestamp
+        val p = providers.value.find { it.id == r.providerId } ?: return
+        val updated = p.copy(
+            ratingSum = p.ratingSum + r.rating,
+            ratingCount = p.ratingCount + 1,
+            loyaltyPoints = p.loyaltyPoints + 15
         )
-
-        db.collection("reviews").document(id).set(docData)
-            .addOnSuccessListener {
-                db.collection("service_providers").document(r.providerId).get()
-                    .addOnSuccessListener { doc ->
-                        if (doc.exists()) {
-                            val currentSum = doc.getDouble("ratingSum")?.toFloat() ?: 0.0f
-                            val currentCount = doc.getLong("ratingCount")?.toInt() ?: 0
-                            val loyaltyPoints = doc.getLong("loyaltyPoints")?.toInt() ?: 0
-                            
-                            val updates = mapOf(
-                                "ratingSum" to (currentSum + r.rating),
-                                "ratingCount" to (currentCount + 1),
-                                "loyaltyPoints" to (loyaltyPoints + 15)
-                             )
-                            db.collection("service_providers").document(r.providerId).update(updates)
-                        }
-                        onComplete()
-                    }
-            }
+        db.collection("providers").document(r.providerId).set(updated.toMap()).addOnCompleteListener { onComplete() }
     }
 
     fun submitIncidentReport(rep: IncidentReport, onComplete: () -> Unit = {}) {
         val id = UUID.randomUUID().toString()
-        val docData = mapOf(
-            "providerId" to rep.providerId,
-            "providerName" to rep.providerName,
-            "reporterName" to rep.reporterName,
-            "reason" to rep.reason,
-            "timestamp" to rep.timestamp
-        )
-        db.collection("incident_reports").document(id).set(docData).addOnSuccessListener { onComplete() }
+        val newRep = rep.copy(id = id)
+        db.collection("incident_reports").document(id).set(newRep.toMap()).addOnCompleteListener { onComplete() }
     }
 
     fun logActivity(user: String, action: String) {
         val id = UUID.randomUUID().toString()
-        val data = mapOf(
-            "user" to user,
-            "action" to action,
-            "timestamp" to System.currentTimeMillis()
-        )
-        if (_isInitialized.value) {
-            db.collection("activity_logs").document(id).set(data)
-        }
-    }
-
-    private fun seedDefaultCategories() {
-        db.collection("categories").get().addOnSuccessListener { snapshots ->
-            if (snapshots.isEmpty) {
-                val defaults = listOf(
-                    ServiceCategory("cat_1", "صيانة وأعمال مهنية", "Maintenance & Professional", "🛠️"),
-                    ServiceCategory("cat_2", "خدمات طبية ورعاية", "Medical & Care Services", "🩺"),
-                    ServiceCategory("cat_3", "صيانة حاسوب وهواتف", "Tech & Mobile Fix", "📱"),
-                    ServiceCategory("cat_4", "نقل وتوصيل وتكاسي", "Transportation & Delivery", "🚚"),
-                    ServiceCategory("cat_5", "تعليم وتدريب", "Education & Training", "📚"),
-                    ServiceCategory("cat_6", "مطاعم ومأكولات يمنية", "Restaurants & Food", "🍛"),
-                    ServiceCategory("cat_7", "طوارئ وخدمات عامة", "Emergency Services", "🚨"),
-                    ServiceCategory("cat_8", "عقارات ومقاولات وبناء", "Real Estate & Housing", "🧱"),
-                    
-                    // Added core requested partitions
-                    ServiceCategory("cat_elec", "صيانة كهرباء ومولدات", "Electricity & Generators", "⚡", "cat_1"),
-                    ServiceCategory("cat_plumb", "سباكة وصحي", "Plumbing & Sanitary", "🚰", "cat_1"),
-                    ServiceCategory("cat_maint", "صيانة وإنشاءات عامة", "General Maintenance", "🔧", "cat_1"),
-                    ServiceCategory("cat_med", "عيادات وأطقم طبية", "Clinics & Doctors", "🏥", "cat_2"),
-                    ServiceCategory("cat_edu", "تدريس ومدرسين خصوصي", "Teachers & Education", "🎓", "cat_5"),
-                    ServiceCategory("cat_law", "محاماة واستشارات قانونية", "Law & Legal Consultations", "⚖️", "cat_7")
-                )
-                for (cat in defaults) {
-                    db.collection("categories").document(cat.id).set(
-                        mapOf(
-                            "id" to cat.id, 
-                            "nameAr" to cat.nameAr, 
-                            "nameEn" to cat.nameEn, 
-                            "iconEmoji" to cat.iconEmoji,
-                            "parentId" to cat.parentId
-                        )
-                    )
-                }
-            }
-        }
-
-        // Seed core commercial categories if empty
-        db.collection("commercial_categories").get().addOnSuccessListener { snapshots ->
-            if (snapshots.isEmpty) {
-                val list = listOf(
-                    CommercialCategory("comm_elec", "أدوات ومواد كهربائية", "Electrical Equipment", "🔌"),
-                    CommercialCategory("comm_phone", "تلفونات وملحقاتها", "Phones & Accessories", "📱"),
-                    CommercialCategory("comm_plumb", "مواد سباكة وحدادة ومقاولات", "Plumbing & Hardware", "🛠️")
-                )
-                for (c in list) {
-                    db.collection("commercial_categories").document(c.id).set(
-                        mapOf("id" to c.id, "nameAr" to c.nameAr, "nameEn" to c.nameEn, "iconEmoji" to c.iconEmoji, "imageUrl" to "")
-                    )
-                }
-            }
-        }
-
-        // Seed a default merchant shop if empty
-        db.collection("commercial_shops").get().addOnSuccessListener { snapshots ->
-            if (snapshots.isEmpty) {
-                val shop = CommercialShop("shop_1", "محلات البرق لمواد البناء والأجهزة", "Al-Barq Materials & Tools", "777644670", "777644670", "اليمن - صنعاء - شارع صخر", "")
-                db.collection("commercial_shops").document(shop.id).set(
-                    mapOf("id" to shop.id, "nameAr" to shop.nameAr, "nameEn" to shop.nameEn, "phone" to shop.phone, "whatsapp" to shop.whatsapp, "address" to shop.address, "logoUrl" to "")
-                )
-            }
-        }
-
-        // Seed default commercial items if empty
-        db.collection("commercial_items").get().addOnSuccessListener { snapshots ->
-            if (snapshots.isEmpty) {
-                val items = listOf(
-                    CommercialItem("item_1", "comm_elec", "shop_1", "لفة كابل كهرباء يمني أصلي 4ملم", "Yemeni Electric Wire 4mm", 18500.0, 30, "", "سلك نحاسي نقي بمواصفات ومقاييس يمنية فاخرة مقاومة للضغط العالي", "توصيل صنعاء خلال 24 ساعة"),
-                    CommercialItem("item_2", "comm_phone", "shop_1", "شاحن سفري ذكي أصلي بقوة 120 واط", "Xiaomi Travel Power Charger 120W", 14000.0, 15, "", "شاحن بمخرجات ذكية معتمد مع نظام تبريد وحماية فائق الكفاءة", "توصيل فوري لجميع المدن"),
-                    CommercialItem("item_3", "comm_plumb", "shop_1", "صنبور مياه إيطالي أصلي نحاس ثقيل", "Italian Brass Water Tap 1 Inch", 4200.0, 50, "", "محبس نحاسي إيطالي متين ومقاوم للصدأ بطبقة مصفحة", "توصيل عبر حافلات البريد")
-                )
-                for (i in items) {
-                    db.collection("commercial_items").document(i.id).set(
-                        mapOf(
-                            "id" to i.id,
-                            "categoryId" to i.categoryId,
-                            "shopId" to i.shopId,
-                            "nameAr" to i.nameAr,
-                            "nameEn" to i.nameEn,
-                            "price" to i.price,
-                            "quantity" to i.quantity,
-                            "imageUrl" to i.imageUrl,
-                            "description" to i.description,
-                            "deliveryMethods" to i.deliveryMethods
-                        )
-                    )
-                }
-            }
-        }
-    }
-
-    // WIPE DATABASE AND REBUILD METHOD TO RESET EVERYTHING TO AN EXTREMELY CLEAN PRISTINE STATE
-    fun wipeDatabaseAndRebuild(onComplete: (Boolean, String) -> Unit) {
-        if (!_isInitialized.value) {
-            onComplete(false, "عذراً، محرك المزامنة غير جاهز حالياً")
-            return
-        }
-
-        managerScope.launch {
-            try {
-                // Collections list to clear
-                val collections = listOf(
-                    "service_providers",
-                    "pending_providers",
-                    "categories",
-                    "banners",
-                    "chats",
-                    "app_config",
-                    "incident_reports",
-                    "activity_logs",
-                    "reviews"
-                )
-
-                // Delete all documents sequentially in background
-                for (col in collections) {
-                    val snapshots = db.collection(col).get().addOnCompleteListener { /* sync deletion wait */ }
-                    // await resolution
-                    val docs = try {
-                        val taskResult = snapshots.addOnSuccessListener {}.addOnFailureListener {}
-                        delay(120) // minor grace delay to process
-                        if (taskResult.isSuccessful) taskResult.result else null
-                    } catch (e: Exception) {
-                        null
-                    }
-
-                    if (docs != null && !docs.isEmpty) {
-                        val batch = db.batch()
-                        for (doc in docs) {
-                            batch.delete(doc.reference)
-                        }
-                        batch.commit()
-                        delay(150)
-                    }
-                }
-
-                // SECURE SEEDING OF NEW FRESH PRISTINE RECORDS
-                // 1. Reseed Categories
-                val cleanCategories = listOf(
-                    ServiceCategory("cat_1", "صيانة وأعمال مهنية", "Maintenance & Professional", "🛠️"),
-                    ServiceCategory("cat_2", "خدمات طبية ورعاية", "Medical & Care Services", "🩺"),
-                    ServiceCategory("cat_3", "صيانة حاسوب وهواتف", "Tech & Mobile Fix", "📱"),
-                    ServiceCategory("cat_4", "نقل وتوصيل وتكاسي", "Transportation & Delivery", "🚚"),
-                    ServiceCategory("cat_5", "تعليم وتدريب", "Education & Training", "📚"),
-                    ServiceCategory("cat_6", "مطاعم ومأكولات يمنية", "Restaurants & Food", "🍛"),
-                    ServiceCategory("cat_7", "طوارئ وخدمات عامة", "Emergency Services", "🚨"),
-                    ServiceCategory("cat_8", "عقارات ومقاولات وبناء", "Real Estate & Housing", "🧱")
-                )
-                for (cat in cleanCategories) {
-                    db.collection("categories").document(cat.id).set(
-                        mapOf("id" to cat.id, "nameAr" to cat.nameAr, "nameEn" to cat.nameEn, "iconEmoji" to cat.iconEmoji)
-                    )
-                }
-
-                // 2. Reseed App Configuration settings
-                val freshConfig = AppConfig(
-                    appName = "دليل الخدمات اليمني الموحد",
-                    themeType = AppThemeType.COSMIC_SILVER,
-                    logoEmoji = "🇾🇪",
-                    welcomeMessage = "مرحباً بكم في الدليل الرقمي والوطني الموحد لخدمات وحرف اليمن 2026!",
-                    mainAdminPass = "maher736462"
-                )
-                db.collection("app_config").document("settings").set(freshConfig.toMap())
-
-                // 3. Reseed Premium/Verified Native Providers across Yemeni Cities (Sana'a, Aden, Taiz, Hadramout)
-                val seedProviders = listOf(
-                    ServiceProvider(
-                        id = "p_1",
-                        fullName = "م. ماهر الخولاني",
-                        phone = "777644670",
-                        whatsapp = "777644670",
-                        categoryId = "cat_1",
-                        subCategory = "سباكة وتركيب شبكات المياه والمضخات",
-                        address = "شارع حدة، أمام مركز الكميم",
-                        area = "صنعاء",
-                        imageUrl = "https://picsum.photos/id/1012/200/200",
-                        isVerified = true,
-                        isPinned = true,
-                        isRecommended = true,
-                        hasPremiumSubscription = true,
-                        loyaltyPoints = 320,
-                        ratingSum = 25.0f,
-                        ratingCount = 5,
-                        previewPrice = 1500.0
-                    ),
-                    ServiceProvider(
-                        id = "p_2",
-                        fullName = "د. أحمد اليماني",
-                        phone = "736462000",
-                        whatsapp = "736462000",
-                        categoryId = "cat_2",
-                        subCategory = "استشاري طب عام ورعاية صحية منزلية",
-                        address = "حي التواهي، خلف البنك الأهلي",
-                        area = "عدن",
-                        imageUrl = "https://picsum.photos/id/1025/200/200",
-                        isVerified = true,
-                        isPinned = true,
-                        isRecommended = true,
-                        hasPremiumSubscription = false,
-                        loyaltyPoints = 180,
-                        ratingSum = 18.0f,
-                        ratingCount = 4,
-                        previewPrice = 5000.0
-                    ),
-                    ServiceProvider(
-                        id = "p_3",
-                        fullName = "صالح الحضرمي",
-                        phone = "711222333",
-                        whatsapp = "711222333",
-                        categoryId = "cat_3",
-                        subCategory = "برمجة حاسوب وصيانة بوردات الآيفون والأندرويد",
-                        address = "فوة، مقابل هايبر المستهلك",
-                        area = "حضرموت",
-                        imageUrl = "https://picsum.photos/id/1035/200/200",
-                        isVerified = true,
-                        isPinned = false,
-                        isRecommended = true,
-                        hasPremiumSubscription = true,
-                        loyaltyPoints = 140,
-                        ratingSum = 19.5f,
-                        ratingCount = 4,
-                        previewPrice = 2000.0
-                    ),
-                    ServiceProvider(
-                        id = "p_4",
-                        fullName = "شركة الماهر للنقل السريع",
-                        phone = "775556667",
-                        whatsapp = "775556667",
-                        categoryId = "cat_4",
-                        subCategory = "شحن بضائع وسفريات وبريد محافظات سريع",
-                        address = "شارع جمال، جوار سينما بلقيس",
-                        area = "تعز",
-                        imageUrl = "https://picsum.photos/id/1041/200/200",
-                        isVerified = true,
-                        isPinned = false,
-                        isRecommended = false,
-                        hasPremiumSubscription = false,
-                        loyaltyPoints = 95,
-                        ratingSum = 9.0f,
-                        ratingCount = 2,
-                        previewPrice = 10000.0
-                    )
-                )
-
-                for (p in seedProviders) {
-                    val pMap = mapOf(
-                        "fullName" to p.fullName,
-                        "phone" to p.phone,
-                        "whatsapp" to p.whatsapp,
-                        "categoryId" to p.categoryId,
-                        "subCategory" to p.subCategory,
-                        "address" to p.address,
-                        "area" to p.area,
-                        "imageUrl" to p.imageUrl,
-                        "idCardUrl" to "https://picsum.photos/400/300",
-                        "gpsLat" to p.gpsLat,
-                        "gpsLng" to p.gpsLng,
-                        "isVerified" to p.isVerified,
-                        "isPinned" to p.isPinned,
-                        "isRecommended" to p.isRecommended,
-                        "hasPremiumSubscription" to p.hasPremiumSubscription,
-                        "loyaltyPoints" to p.loyaltyPoints,
-                        "ratingSum" to p.ratingSum,
-                        "ratingCount" to p.ratingCount,
-                        "isBlocked" to false,
-                        "previewPrice" to p.previewPrice
-                    )
-                    db.collection("service_providers").document(p.id).set(pMap)
-                }
-
-                // 4. Seed Beautiful Banner Ad
-                val freshBanner = BannerAd(
-                    id = "b_1",
-                    title = "مرحباً بكم في خدمات دليلي اليمني الشامل 🇾🇪",
-                    imageUrl = "https://picsum.photos/600/300?tmp=1",
-                    linkUrl = "https://yemen-services.com",
-                    displaySize = "L",
-                    durationSeconds = 6,
-                    isActive = true
-                )
-                db.collection("banners").document(freshBanner.id).set(
-                    mapOf(
-                        "title" to freshBanner.title,
-                        "imageUrl" to freshBanner.imageUrl,
-                        "linkUrl" to freshBanner.linkUrl,
-                        "displaySize" to freshBanner.displaySize,
-                        "durationSeconds" to freshBanner.durationSeconds,
-                        "isActive" to freshBanner.isActive
-                    )
-                )
-
-                // 5. Create Initial Fresh Seeding Logs
-                val freshLog = ActivityLog(
-                    id = "initial_reset_log",
-                    user = "النظام",
-                    action = "تم إعادة هيكلة، تصفير، وبناء كافة قواعد البيانات وإعادة تهيئة التطبيق بنجاح من الصفر 🇾🇪"
-                )
-                db.collection("activity_logs").document(freshLog.id).set(
-                    mapOf(
-                        "user" to freshLog.user,
-                        "action" to freshLog.action,
-                        "timestamp" to freshLog.timestamp
-                    )
-                )
-
-                delay(200)
-                forceReSubscribe()
-                onComplete(true, "تم حذف كافة الملفات والبيانات بالكامل، وتم إعادة تهيئة وبناء التطبيق والشبكة من الصفر بنجاح تام! 🇾🇪")
-            } catch (e: Exception) {
-                onComplete(false, "حدثت مشكلة أثناء محاولة إعادة التهيئة والسيدر: ${e.message}")
-            }
-        }
+        val item = ActivityLog(id = id, user = user, action = action, timestamp = System.currentTimeMillis())
+        db.collection("activity_logs").document(id).set(item.toMap())
     }
 
     fun addBooking(b: ServiceBooking, onComplete: () -> Unit = {}) {
-        val id = b.id.ifEmpty { UUID.randomUUID().toString() }
-        val data = mapOf(
-            "id" to id,
-            "providerId" to b.providerId,
-            "providerName" to b.providerName,
-            "userName" to b.userName,
-            "userPhone" to b.userPhone,
-            "bookingTime" to b.bookingTime,
-            "status" to b.status,
-            "notes" to b.notes,
-            "timestamp" to b.timestamp
-        )
-        db.collection("bookings").document(id).set(data).addOnSuccessListener {
+        val id = if (b.id.isEmpty()) UUID.randomUUID().toString() else b.id
+        val newBooking = b.copy(id = id)
+        db.collection("bookings").document(id).set(newBooking.toMap()).addOnCompleteListener {
             logActivity("حجز موعد", "طلب حجز جديد من ${b.userName} مع ${b.providerName}")
+
             val config = appConfig.value
             if (config.notificationsAllEnabled) {
                 sendNotification(
@@ -1257,10 +527,12 @@ object FirebaseManager {
     }
 
     fun updateBookingStatus(id: String, status: String, onComplete: () -> Unit = {}) {
-        db.collection("bookings").document(id).update("status", status).addOnSuccessListener {
+        val b = bookings.value.find { it.id == id } ?: return
+        val updated = b.copy(status = status)
+        db.collection("bookings").document(id).set(updated.toMap()).addOnCompleteListener {
             logActivity("تحديث الحجز", "تعديل حالة الحجز $id لـ $status")
-            val b = bookings.value.find { it.id == id }
-            if (b != null && appConfig.value.notificationsAllEnabled) {
+
+            if (appConfig.value.notificationsAllEnabled) {
                 val statusTextAr = when(status) {
                     "ACCEPTED" -> "مقبول"
                     "COMPLETED" -> "مكتمل"
@@ -1288,32 +560,598 @@ object FirebaseManager {
     }
 
     fun deleteBooking(id: String, onComplete: () -> Unit = {}) {
-        db.collection("bookings").document(id).delete().addOnSuccessListener {
+        db.collection("bookings").document(id).delete().addOnCompleteListener {
             logActivity("حذف حجز", "حذف حجز موعد ذو المعرف [$id]")
             onComplete()
         }
     }
 
     fun sendNotification(n: AppNotification, onComplete: () -> Unit = {}) {
-        val id = n.id.ifEmpty { UUID.randomUUID().toString() }
-        val data = mapOf(
-            "id" to id,
-            "titleAr" to n.titleAr,
-            "titleEn" to n.titleEn,
-            "contentAr" to n.contentAr,
-            "contentEn" to n.contentEn,
-            "isPublic" to n.isPublic,
-            "targetId" to n.targetId,
-            "timestamp" to n.timestamp
-        )
-        db.collection("notifications").document(id).set(data).addOnSuccessListener {
-            onComplete()
-        }
+        val id = if (n.id.isEmpty()) UUID.randomUUID().toString() else n.id
+        db.collection("notifications").document(id).set(n.copy(id = id).toMap()).addOnCompleteListener { onComplete() }
     }
 
     fun deleteNotification(id: String, onComplete: () -> Unit = {}) {
-        db.collection("notifications").document(id).delete().addOnSuccessListener {
-            onComplete()
+        db.collection("notifications").document(id).delete().addOnCompleteListener { onComplete() }
+    }
+
+    private fun seedDefaultCategories() {
+        val defaultCats = listOf(
+            ServiceCategory("cat_1", "صيانة وأعمال مهنية", "Maintenance & Professional", "🛠️"),
+            ServiceCategory("cat_2", "خدمات طبية ورعاية", "Medical & Care Services", "🩺"),
+            ServiceCategory("cat_3", "صيانة حاسوب وهواتف", "Tech & Mobile Fix", "📱"),
+            ServiceCategory("cat_4", "نقل وتوصيل وتكاسي", "Transportation & Delivery", "🚚"),
+            ServiceCategory("cat_5", "تعليم وتدريب", "Education & Training", "📚"),
+            ServiceCategory("cat_6", "مطاعم ومأكولات يمنية", "Restaurants & Food", "🍛"),
+            ServiceCategory("cat_7", "طوارئ وخدمات عامة", "Emergency Services", "🚨"),
+            ServiceCategory("cat_8", "عقارات ومقاولات وبناء", "Real Estate & Housing", "🧱"),
+            ServiceCategory("cat_elec", "صيانة كهرباء ومولدات", "Electricity & Generators", "⚡", "cat_1"),
+            ServiceCategory("cat_plumb", "سباكة وصحي", "Plumbing & Sanitary", "🚰", "cat_1"),
+            ServiceCategory("cat_maint", "صيانة وإنشاءات عامة", "General Maintenance", "🔧", "cat_1"),
+            ServiceCategory("cat_med", "عيادات وأطقم طبية", "Clinics & Doctors", "🏥", "cat_2"),
+            ServiceCategory("cat_edu", "تدريس ومدرسين خصوصي", "Teachers & Education", "🎓", "cat_5"),
+            ServiceCategory("cat_law", "محاماة واستشارات قانونية", "Law & Legal Consultations", "⚖️", "cat_7")
+        )
+        val batch = db.batch()
+        for (cat in defaultCats) {
+            batch.set(db.collection("categories").document(cat.id), cat.toMap())
+        }
+        batch.commit()
+    }
+
+    private fun seedDefaultProviders() {
+        val seedProviders = listOf(
+            ServiceProvider(
+                id = "p_1",
+                fullName = "م. ماهر الخولاني",
+                phone = "777644670",
+                whatsapp = "777644670",
+                categoryId = "cat_1",
+                subCategory = "سباكة وتركيب شبكات المياه والمضخات",
+                address = "شارع حدة، أمام مركز الكميم",
+                area = "صنعاء",
+                imageUrl = "https://picsum.photos/id/1012/200/200",
+                isVerified = true,
+                isPinned = true,
+                isRecommended = true,
+                hasPremiumSubscription = true,
+                loyaltyPoints = 320,
+                ratingSum = 25.0f,
+                ratingCount = 5,
+                previewPrice = 1500.0
+            ),
+            ServiceProvider(
+                id = "p_2",
+                fullName = "د. أحمد اليماني",
+                phone = "736462000",
+                whatsapp = "736462000",
+                categoryId = "cat_2",
+                subCategory = "استشاري طب عام ورعاية صحية منزلية",
+                address = "حي التواهي، خلف البنك الأهلي",
+                area = "عدن",
+                imageUrl = "https://picsum.photos/id/1025/200/200",
+                isVerified = true,
+                isPinned = true,
+                isRecommended = true,
+                hasPremiumSubscription = false,
+                loyaltyPoints = 180,
+                ratingSum = 18.0f,
+                ratingCount = 4,
+                previewPrice = 5000.0
+            ),
+            ServiceProvider(
+                id = "p_3",
+                fullName = "صالح الحضرمي",
+                phone = "711222333",
+                whatsapp = "711222333",
+                categoryId = "cat_3",
+                subCategory = "برمجة حاسوب وصيانة بوردات الآيفون والأندرويد",
+                address = "فوة، مقابل هايبر المستهلك",
+                area = "حضرموت",
+                imageUrl = "https://picsum.photos/id/1035/200/200",
+                isVerified = true,
+                isPinned = false,
+                isRecommended = true,
+                hasPremiumSubscription = true,
+                loyaltyPoints = 140,
+                ratingSum = 19.5f,
+                ratingCount = 4,
+                previewPrice = 2000.0
+            ),
+            ServiceProvider(
+                id = "p_4",
+                fullName = "شركة الماهر للنقل السريع",
+                phone = "775556667",
+                whatsapp = "775556667",
+                categoryId = "cat_4",
+                subCategory = "شحن بضائع وسفريات وبريد محافظات سريع",
+                address = "شارع جمال، جوار سينما بلقيس",
+                area = "تعز",
+                imageUrl = "https://picsum.photos/id/1041/200/200",
+                isVerified = true,
+                isPinned = false,
+                isRecommended = false,
+                hasPremiumSubscription = false,
+                loyaltyPoints = 95,
+                ratingSum = 9.0f,
+                ratingCount = 2,
+                previewPrice = 10000.0
+            )
+        )
+        val batch = db.batch()
+        for (p in seedProviders) {
+            batch.set(db.collection("providers").document(p.id), p.toMap())
+        }
+        batch.commit()
+    }
+
+    private fun seedDefaultBanners() {
+        val seedBanners = listOf(
+            BannerAd(
+                id = "b_1",
+                title = "مرحباً بكم في خدمات دليلي اليمني الشامل 🇾🇪",
+                imageUrl = "https://picsum.photos/600/300?tmp=1",
+                linkUrl = "https://yemen-services.com",
+                displaySize = "L",
+                durationSeconds = 6,
+                isActive = true
+            )
+        )
+        val batch = db.batch()
+        for (b in seedBanners) {
+            batch.set(db.collection("banners").document(b.id), b.toMap())
+        }
+        batch.commit()
+    }
+
+    private fun seedDefaultCustomColors() {
+        val seedCustomColors = listOf(
+            CustomColorTheme("color_navy", "كحلي كلاسيك", "Classic Navy", "#FF0A1324", "#FF111F36", "#FF182B4B", "#FFE6F1FC", "#FF38BDF8", "#FF818CF8", "#FF475569")
+        )
+        val batch = db.batch()
+        for (c in seedCustomColors) {
+            batch.set(db.collection("custom_colors").document(c.id), c.toMap())
+        }
+        batch.commit()
+    }
+
+    private fun seedDefaultCommercialCategories() {
+        val defaultCommercialCats = listOf(
+            CommercialCategory("comm_elec", "أدوات ومواد كهربائية", "Electrical Equipment", "🔌"),
+            CommercialCategory("comm_phone", "تلفونات وملحقاتها", "Phones & Accessories", "📱"),
+            CommercialCategory("comm_plumb", "مواد سباكة وحدادة ومقاولات", "Plumbing & Hardware", "🛠️")
+        )
+        val batch = db.batch()
+        for (cc in defaultCommercialCats) {
+            batch.set(db.collection("commercial_categories").document(cc.id), cc.toMap())
+        }
+        batch.commit()
+    }
+
+    private fun seedDefaultCommercialShops() {
+        val defaultShops = listOf(
+            CommercialShop("shop_1", "محلات البرق لمواد البناء والأجهزة", "Al-Barq Materials & Tools", "777644670", "777644670", "اليمن - صنعاء - شارع صخر", "")
+        )
+        val batch = db.batch()
+        for (sh in defaultShops) {
+            batch.set(db.collection("commercial_shops").document(sh.id), sh.toMap())
+        }
+        batch.commit()
+    }
+
+    private fun seedDefaultCommercialItems() {
+        val defaultItems = listOf(
+            CommercialItem("item_1", "comm_elec", "shop_1", "لفة كابل كهرباء يمني أصلي 4ملم", "Yemeni Electric Wire 4mm", 18500.0, 30, "", "سلك نحاسي نقي بمواصفات ومقاييس يمنية فاخرة مقاومة للضغط العالي", "توصيل صنعاء خلال 24 ساعة"),
+            CommercialItem("item_2", "comm_phone", "shop_1", "شاحن سفري ذكي أصلي بقوة 120 واط", "Xiaomi Travel Power Charger 120W", 14000.0, 15, "", "شاحن بمخرجات ذكية معتمد مع نظام تبريد وحماية فائق الكفاءة", "توصيل فوري لجميع المدن"),
+            CommercialItem("item_3", "comm_plumb", "shop_1", "صنبور مياه إيطالي أصلي نحاس ثقيل", "Italian Brass Water Tap 1 Inch", 4200.0, 50, "", "محبس نحاسي إيطالي متين ومقاوم للصدأ بطبقة مصفحة", "توصيل عبر حافلات البريد")
+        )
+        val batch = db.batch()
+        for (i in defaultItems) {
+            batch.set(db.collection("commercial_items").document(i.id), i.toMap())
+        }
+        batch.commit()
+    }
+
+    fun wipeDatabaseAndRebuild(onComplete: (Boolean, String) -> Unit) {
+        managerScope.launch {
+            try {
+                val collections = listOf(
+                    "categories", "providers", "pending_providers", "banners", "chats",
+                    "incident_reports", "activity_logs", "moderators", "custom_colors",
+                    "commercial_categories", "commercial_shops", "commercial_items",
+                    "bookings", "notifications"
+                )
+
+                // Delete all collections in Firestore
+                for (col in collections) {
+                    db.collection(col).get().addOnSuccessListener { snaps ->
+                        val batch = db.batch()
+                        for (doc in snaps) {
+                            batch.delete(doc.reference)
+                        }
+                        batch.commit()
+                    }
+                }
+
+                delay(1000)
+
+                // Re-seed all defaults
+                seedDefaultCategories()
+                seedDefaultProviders()
+                seedDefaultBanners()
+                seedDefaultCustomColors()
+                seedDefaultCommercialCategories()
+                seedDefaultCommercialShops()
+                seedDefaultCommercialItems()
+
+                val log = ActivityLog(
+                    id = "initial_reset_log",
+                    user = "النظام",
+                    action = "تم إعادة هيكلة، تصفير، وبناء كافة قواعد البيانات وإعادة تهيئة التطبيق بنجاح من الصفر 🇾🇪"
+                )
+                db.collection("activity_logs").document(log.id).set(log.toMap())
+
+                val defaultCfg = AppConfig(
+                    appName = "دليل الخدمات اليمني الموحد",
+                    themeType = AppThemeType.COSMIC_SILVER,
+                    logoEmoji = "🇾🇪",
+                    welcomeMessage = "مرحباً بكم في الدليل الرقمي والوطني الموحد لخدمات وحرف اليمن 2026!",
+                    mainAdminPass = "maher736462"
+                )
+                db.collection("app_config").document("main").set(defaultCfg.toMap())
+
+                delay(1000)
+                onComplete(true, "تم حذف كافة الملفات والبيانات بالكامل، وتم إعادة تهيئة وبناء التطبيق والشبكة من الصفر بنجاح تام! 🇾🇪")
+            } catch (e: Exception) {
+                onComplete(false, "حدثت مشكلة أثناء محاولة إعادة التهيئة: ${e.message}")
+            }
         }
     }
+
+    fun serviceCategoryFromMap(id: String, map: Map<String, Any>): ServiceCategory {
+        return ServiceCategory(
+            id = id,
+            nameAr = map["nameAr"] as? String ?: "",
+            nameEn = map["nameEn"] as? String ?: "",
+            iconEmoji = map["iconEmoji"] as? String ?: "",
+            parentId = map["parentId"] as? String ?: ""
+        )
+    }
+
+    fun customColorThemeFromMap(id: String, map: Map<String, Any>): CustomColorTheme {
+        return CustomColorTheme(
+            id = id,
+            nameAr = map["nameAr"] as? String ?: "",
+            nameEn = map["nameEn"] as? String ?: "",
+            backgroundHex = map["backgroundHex"] as? String ?: "#FF0F1016",
+            surfaceHex = map["surfaceHex"] as? String ?: "#FF1E2230",
+            surfaceVariantHex = map["surfaceVariantHex"] as? String ?: "#FF24293D",
+            primaryHex = map["primaryHex"] as? String ?: "#FFE2E8F0",
+            secondaryHex = map["secondaryHex"] as? String ?: "#FF38BDF8",
+            tertiaryHex = map["tertiaryHex"] as? String ?: "#FF818CF8",
+            outlineHex = map["outlineHex"] as? String ?: "#FF475569"
+        )
+    }
+
+    fun commercialCategoryFromMap(id: String, map: Map<String, Any>): CommercialCategory {
+        return CommercialCategory(
+            id = id,
+            nameAr = map["nameAr"] as? String ?: "",
+            nameEn = map["nameEn"] as? String ?: "",
+            iconEmoji = map["iconEmoji"] as? String ?: "🛒",
+            imageUrl = map["imageUrl"] as? String ?: ""
+        )
+    }
+
+    fun commercialShopFromMap(id: String, map: Map<String, Any>): CommercialShop {
+        return CommercialShop(
+            id = id,
+            nameAr = map["nameAr"] as? String ?: "",
+            nameEn = map["nameEn"] as? String ?: "",
+            phone = map["phone"] as? String ?: "",
+            whatsapp = map["whatsapp"] as? String ?: "",
+            address = map["address"] as? String ?: "",
+            logoUrl = map["logoUrl"] as? String ?: ""
+        )
+    }
+
+    fun commercialItemFromMap(id: String, map: Map<String, Any>): CommercialItem {
+        return CommercialItem(
+            id = id,
+            categoryId = map["categoryId"] as? String ?: "",
+            shopId = map["shopId"] as? String ?: "",
+            nameAr = map["nameAr"] as? String ?: "",
+            nameEn = map["nameEn"] as? String ?: "",
+            price = (map["price"] as? Number)?.toDouble() ?: 0.0,
+            quantity = (map["quantity"] as? Number)?.toInt() ?: 0,
+            imageUrl = map["imageUrl"] as? String ?: "",
+            description = map["description"] as? String ?: "",
+            deliveryMethods = map["deliveryMethods"] as? String ?: "توصيل منزلي"
+        )
+    }
+
+    fun serviceProviderFromMap(id: String, map: Map<String, Any>): ServiceProvider {
+        return ServiceProvider(
+            id = id,
+            fullName = map["fullName"] as? String ?: "",
+            phone = map["phone"] as? String ?: "",
+            whatsapp = map["whatsapp"] as? String ?: "",
+            categoryId = map["categoryId"] as? String ?: "",
+            subCategory = map["subCategory"] as? String ?: "",
+            address = map["address"] as? String ?: "",
+            area = map["area"] as? String ?: "",
+            imageUrl = map["imageUrl"] as? String ?: "",
+            idCardUrl = map["idCardUrl"] as? String ?: "",
+            gpsLat = (map["gpsLat"] as? Number)?.toDouble() ?: 0.0,
+            gpsLng = (map["gpsLng"] as? Number)?.toDouble() ?: 0.0,
+            isVerified = map["isVerified"] as? Boolean ?: false,
+            isPinned = map["isPinned"] as? Boolean ?: false,
+            isRecommended = map["isRecommended"] as? Boolean ?: false,
+            hasPremiumSubscription = map["hasPremiumSubscription"] as? Boolean ?: false,
+            loyaltyPoints = (map["loyaltyPoints"] as? Number)?.toInt() ?: 0,
+            ratingSum = (map["ratingSum"] as? Number)?.toFloat() ?: 0.0f,
+            ratingCount = (map["ratingCount"] as? Number)?.toInt() ?: 0,
+            isBlocked = map["isBlocked"] as? Boolean ?: false,
+            previewPrice = (map["previewPrice"] as? Number)?.toDouble() ?: 0.0,
+            experienceYears = (map["experienceYears"] as? Number)?.toInt() ?: 3,
+            portfolioImages = map["portfolioImages"] as? String ?: "",
+            workDescriptionAr = map["workDescriptionAr"] as? String ?: "خبرة ممتازة في تصنيع وصيانة كافة الأعمال بمهنية وجودة عالية في اليمن.",
+            workDescriptionEn = map["workDescriptionEn"] as? String ?: "Excellent professional experience in all maintenance and setup work in Yemen.",
+            hideProfileDetails = map["hideProfileDetails"] as? Boolean ?: false
+        )
+    }
+
+    fun serviceBookingFromMap(id: String, map: Map<String, Any>): ServiceBooking {
+        return ServiceBooking(
+            id = id,
+            providerId = map["providerId"] as? String ?: "",
+            providerName = map["providerName"] as? String ?: "",
+            userName = map["userName"] as? String ?: "",
+            userPhone = map["userPhone"] as? String ?: "",
+            bookingTime = map["bookingTime"] as? String ?: "",
+            status = map["status"] as? String ?: "PENDING",
+            notes = map["notes"] as? String ?: "",
+            timestamp = (map["timestamp"] as? Number)?.toLong() ?: System.currentTimeMillis()
+        )
+    }
+
+    fun appNotificationFromMap(id: String, map: Map<String, Any>): AppNotification {
+        return AppNotification(
+            id = id,
+            titleAr = map["titleAr"] as? String ?: "",
+            titleEn = map["titleEn"] as? String ?: "",
+            contentAr = map["contentAr"] as? String ?: "",
+            contentEn = map["contentEn"] as? String ?: "",
+            isPublic = map["isPublic"] as? Boolean ?: false,
+            targetId = map["targetId"] as? String ?: "",
+            timestamp = (map["timestamp"] as? Number)?.toLong() ?: System.currentTimeMillis()
+        )
+    }
+
+    fun bannerAdFromMap(id: String, map: Map<String, Any>): BannerAd {
+        return BannerAd(
+            id = id,
+            title = map["title"] as? String ?: "",
+            imageUrl = map["imageUrl"] as? String ?: "",
+            linkUrl = map["linkUrl"] as? String ?: "",
+            displaySize = map["displaySize"] as? String ?: "M",
+            durationSeconds = (map["durationSeconds"] as? Number)?.toInt() ?: 5,
+            isActive = map["isActive"] as? Boolean ?: true
+        )
+    }
+
+    fun chatMessageFromMap(id: String, map: Map<String, Any>): ChatMessage {
+        return ChatMessage(
+            id = id,
+            senderId = map["senderId"] as? String ?: "",
+            senderName = map["senderName"] as? String ?: "",
+            receiverId = map["receiverId"] as? String ?: "",
+            content = map["content"] as? String ?: "",
+            timestamp = (map["timestamp"] as? Number)?.toLong() ?: System.currentTimeMillis()
+        )
+    }
+
+    fun incidentReportFromMap(id: String, map: Map<String, Any>): IncidentReport {
+        return IncidentReport(
+            id = id,
+            providerId = map["providerId"] as? String ?: "",
+            providerName = map["providerName"] as? String ?: "",
+            reporterName = map["reporterName"] as? String ?: "",
+            reason = map["reason"] as? String ?: "",
+            timestamp = (map["timestamp"] as? Number)?.toLong() ?: System.currentTimeMillis()
+        )
+    }
+
+    fun activityLogFromMap(id: String, map: Map<String, Any>): ActivityLog {
+        return ActivityLog(
+            id = id,
+            user = map["user"] as? String ?: "",
+            action = map["action"] as? String ?: "",
+            timestamp = (map["timestamp"] as? Number)?.toLong() ?: System.currentTimeMillis()
+        )
+    }
+
+    fun moderatorFromMap(id: String, map: Map<String, Any>): Moderator {
+        return Moderator(
+            id = id,
+            username = map["username"] as? String ?: "",
+            password = map["password"] as? String ?: "",
+            secretKey = map["secretKey"] as? String ?: "",
+            permissions = map["permissions"] as? String ?: ""
+        )
+    }
+}
+
+// Top-level extension functions to support direct clean Firestore serialization
+fun ServiceCategory.toMap(): Map<String, Any> {
+    return mapOf(
+        "id" to id,
+        "nameAr" to nameAr,
+        "nameEn" to nameEn,
+        "iconEmoji" to iconEmoji,
+        "parentId" to parentId
+    )
+}
+
+fun CustomColorTheme.toMap(): Map<String, Any> {
+    return mapOf(
+        "id" to id,
+        "nameAr" to nameAr,
+        "nameEn" to nameEn,
+        "backgroundHex" to backgroundHex,
+        "surfaceHex" to surfaceHex,
+        "surfaceVariantHex" to surfaceVariantHex,
+        "primaryHex" to primaryHex,
+        "secondaryHex" to secondaryHex,
+        "tertiaryHex" to tertiaryHex,
+        "outlineHex" to outlineHex
+    )
+}
+
+fun CommercialCategory.toMap(): Map<String, Any> {
+    return mapOf(
+        "id" to id,
+        "nameAr" to nameAr,
+        "nameEn" to nameEn,
+        "iconEmoji" to iconEmoji,
+        "imageUrl" to imageUrl
+    )
+}
+
+fun CommercialShop.toMap(): Map<String, Any> {
+    return mapOf(
+        "id" to id,
+        "nameAr" to nameAr,
+        "nameEn" to nameEn,
+        "phone" to phone,
+        "whatsapp" to whatsapp,
+        "address" to address,
+        "logoUrl" to logoUrl
+    )
+}
+
+fun CommercialItem.toMap(): Map<String, Any> {
+    return mapOf(
+        "id" to id,
+        "categoryId" to categoryId,
+        "shopId" to shopId,
+        "nameAr" to nameAr,
+        "nameEn" to nameEn,
+        "price" to price,
+        "quantity" to quantity,
+        "imageUrl" to imageUrl,
+        "description" to description,
+        "deliveryMethods" to deliveryMethods
+    )
+}
+
+fun ServiceProvider.toMap(): Map<String, Any> {
+    return mapOf(
+        "id" to id,
+        "fullName" to fullName,
+        "phone" to phone,
+        "whatsapp" to whatsapp,
+        "categoryId" to categoryId,
+        "subCategory" to subCategory,
+        "address" to address,
+        "area" to area,
+        "imageUrl" to imageUrl,
+        "idCardUrl" to idCardUrl,
+        "gpsLat" to gpsLat,
+        "gpsLng" to gpsLng,
+        "isVerified" to isVerified,
+        "isPinned" to isPinned,
+        "isRecommended" to isRecommended,
+        "hasPremiumSubscription" to hasPremiumSubscription,
+        "loyaltyPoints" to loyaltyPoints,
+        "ratingSum" to ratingSum,
+        "ratingCount" to ratingCount,
+        "isBlocked" to isBlocked,
+        "previewPrice" to previewPrice,
+        "experienceYears" to experienceYears,
+        "portfolioImages" to portfolioImages,
+        "workDescriptionAr" to workDescriptionAr,
+        "workDescriptionEn" to workDescriptionEn,
+        "hideProfileDetails" to hideProfileDetails
+    )
+}
+
+fun ServiceBooking.toMap(): Map<String, Any> {
+    return mapOf(
+        "id" to id,
+        "providerId" to providerId,
+        "providerName" to providerName,
+        "userName" to userName,
+        "userPhone" to userPhone,
+        "bookingTime" to bookingTime,
+        "status" to status,
+        "notes" to notes,
+        "timestamp" to timestamp
+    )
+}
+
+fun AppNotification.toMap(): Map<String, Any> {
+    return mapOf(
+        "id" to id,
+        "titleAr" to titleAr,
+        "titleEn" to titleEn,
+        "contentAr" to contentAr,
+        "contentEn" to contentEn,
+        "isPublic" to isPublic,
+        "targetId" to targetId,
+        "timestamp" to timestamp
+    )
+}
+
+fun BannerAd.toMap(): Map<String, Any> {
+    return mapOf(
+        "id" to id,
+        "title" to title,
+        "imageUrl" to imageUrl,
+        "linkUrl" to linkUrl,
+        "displaySize" to displaySize,
+        "durationSeconds" to durationSeconds,
+        "isActive" to isActive
+    )
+}
+
+fun ChatMessage.toMap(): Map<String, Any> {
+    return mapOf(
+        "id" to id,
+        "senderId" to senderId,
+        "senderName" to senderName,
+        "receiverId" to receiverId,
+        "content" to content,
+        "timestamp" to timestamp
+    )
+}
+
+fun IncidentReport.toMap(): Map<String, Any> {
+    return mapOf(
+        "id" to id,
+        "providerId" to providerId,
+        "providerName" to providerName,
+        "reporterName" to reporterName,
+        "reason" to reason,
+        "timestamp" to timestamp
+    )
+}
+
+fun ActivityLog.toMap(): Map<String, Any> {
+    return mapOf(
+        "id" to id,
+        "user" to user,
+        "action" to action,
+        "timestamp" to timestamp
+    )
+}
+
+fun Moderator.toMap(): Map<String, Any> {
+    return mapOf(
+        "id" to id,
+        "username" to username,
+        "password" to password,
+        "secretKey" to secretKey,
+        "permissions" to permissions
+    )
 }

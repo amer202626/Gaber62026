@@ -8,7 +8,8 @@ enum class AppThemeType {
     EMERALD_CLASSIC, // 🟢 الزمردي الراقي
     SMOKY_BLACK,     // 🌌 الأسود الدخاني
     LIGHT_PINK,      // 🌸 الزهري الفاتح
-    GOLDEN_WHITE     // ✨ الأبيض الذهبي
+    GOLDEN_WHITE,    // ✨ الأبيض الذهبي
+    CUSTOM_COLOR     // 🎨 ألوان مخصصة ومعدلة
 }
 
 data class AppConfig(
@@ -42,7 +43,11 @@ data class AppConfig(
     val appDownloadUrl: String = "https://play.google.com/store/apps/details?id=com.yemen.services.hub",
     val footerFontSize: Int = 12,
     val customFontFamily: String = "Default",
-    val registrationTerms: String = "1. الالتزام بالمهنية والأمانة الشديدة\n2. تقديم أسعار معاينة مناسبة وعادلة للمشتركين\n3. مراجعة ومصادقة وثائق الهوية الوطنية\n4. يحق للأدمن إيقاف أو حظر الحرفيين عند تلقي شكاوى"
+    val registrationTerms: String = "1. الالتزام بالمهنية والأمانة الشديدة\n2. تقديم أسعار معاينة مناسبة وعادلة للمشتركين\n3. مراجعة ومصادقة وثائق الهوية الوطنية\n4. يحق للأدمن إيقاف أو حظر الحرفيين عند تلقي شكاوى",
+    val searchBarVisible: Boolean = true,
+    val searchPlaceholder: String = "ابحث عن مهندس، سباك، طبيب...",
+    val searchPlaceholderEn: String = "Search plumber, doctor...",
+    val activeCustomColorId: String = ""
 ) {
     fun toMap(): Map<String, Any> {
         return mapOf(
@@ -76,7 +81,11 @@ data class AppConfig(
             "appDownloadUrl" to appDownloadUrl,
             "footerFontSize" to footerFontSize,
             "customFontFamily" to customFontFamily,
-            "registrationTerms" to registrationTerms
+            "registrationTerms" to registrationTerms,
+            "searchBarVisible" to searchBarVisible,
+            "searchPlaceholder" to searchPlaceholder,
+            "searchPlaceholderEn" to searchPlaceholderEn,
+            "activeCustomColorId" to activeCustomColorId
         )
     }
 
@@ -117,7 +126,11 @@ data class AppConfig(
                 appDownloadUrl = map["appDownloadUrl"] as? String ?: "https://play.google.com/store/apps/details?id=com.yemen.services.hub",
                 footerFontSize = (map["footerFontSize"] as? Long)?.toInt() ?: 12,
                 customFontFamily = map["customFontFamily"] as? String ?: "Default",
-                registrationTerms = map["registrationTerms"] as? String ?: "1. الالتزام بالمهنية والأمانة الشديدة\n2. تقديم أسعار معاينة مناسبة وعادلة للمشتركين\n3. مراجعة ومصادقة وثائق الهوية الوطنية\n4. يحق للأدمن إيقاف أو حظر الحرفيين عند تلقي شكاوى"
+                registrationTerms = map["registrationTerms"] as? String ?: "1. الالتزام بالمهنية والأمانة الشديدة\n2. تقديم أسعار معاينة مناسبة وعادلة للمشتركين\n3. مراجعة ومصادقة وثائق الهوية الوطنية\n4. يحق للأدمن إيقاف أو حظر الحرفيين عند تلقي شكاوى",
+                searchBarVisible = map["searchBarVisible"] as? Boolean ?: true,
+                searchPlaceholder = map["searchPlaceholder"] as? String ?: "ابحث عن مهندس، سباك، طبيب...",
+                searchPlaceholderEn = map["searchPlaceholderEn"] as? String ?: "Search plumber, doctor...",
+                activeCustomColorId = map["activeCustomColorId"] as? String ?: ""
             )
         }
     }
@@ -127,7 +140,52 @@ data class ServiceCategory(
     val id: String = "",
     val nameAr: String = "",
     val nameEn: String = "",
-    val iconEmoji: String = ""
+    val iconEmoji: String = "",
+    val parentId: String = ""
+)
+
+data class CustomColorTheme(
+    val id: String = "",
+    val nameAr: String = "",
+    val nameEn: String = "",
+    val backgroundHex: String = "#FF0F1016",
+    val surfaceHex: String = "#FF1E2230",
+    val surfaceVariantHex: String = "#FF24293D",
+    val primaryHex: String = "#FFE2E8F0",
+    val secondaryHex: String = "#FF38BDF8",
+    val tertiaryHex: String = "#FF818CF8",
+    val outlineHex: String = "#FF475569"
+)
+
+data class CommercialCategory(
+    val id: String = "",
+    val nameAr: String = "",
+    val nameEn: String = "",
+    val iconEmoji: String = "🛒",
+    val imageUrl: String = ""
+)
+
+data class CommercialShop(
+    val id: String = "",
+    val nameAr: String = "",
+    val nameEn: String = "",
+    val phone: String = "",
+    val whatsapp: String = "",
+    val address: String = "",
+    val logoUrl: String = ""
+)
+
+data class CommercialItem(
+    val id: String = "",
+    val categoryId: String = "",
+    val shopId: String = "",
+    val nameAr: String = "",
+    val nameEn: String = "",
+    val price: Double = 0.0,
+    val quantity: Int = 0,
+    val imageUrl: String = "",
+    val description: String = "",
+    val deliveryMethods: String = "توصيل منزلي"
 )
 
 data class ServiceProvider(

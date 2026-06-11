@@ -40,6 +40,10 @@ object FirebaseManager {
     val incidentReports = MutableStateFlow<List<IncidentReport>>(emptyList())
     val activityLogs = MutableStateFlow<List<ActivityLog>>(emptyList())
     val moderators = MutableStateFlow<List<Moderator>>(emptyList())
+    val customColors = MutableStateFlow<List<CustomColorTheme>>(emptyList())
+    val commercialCategories = MutableStateFlow<List<CommercialCategory>>(emptyList())
+    val commercialShops = MutableStateFlow<List<CommercialShop>>(emptyList())
+    val commercialItems = MutableStateFlow<List<CommercialItem>>(emptyList())
     val citiesList = MutableStateFlow(listOf("صنعاء", "عدن", "تعز", "حضرموت", "الحديدة", "إب"))
     val isProvidersDataFromCache = MutableStateFlow(false)
 
@@ -137,13 +141,98 @@ object FirebaseManager {
                                 id = doc.id,
                                 nameAr = doc.getString("nameAr") ?: "",
                                 nameEn = doc.getString("nameEn") ?: "",
-                                iconEmoji = doc.getString("iconEmoji") ?: "🎒"
+                                iconEmoji = doc.getString("iconEmoji") ?: "🎒",
+                                parentId = doc.getString("parentId") ?: ""
                             )
                         }
                         categories.value = items
                     }
                 }
             registrations.add(catReg)
+
+            // 11. Custom Color Themes Listener
+            val colorReg = db.collection("custom_colors")
+                .addSnapshotListener { snapshots, error ->
+                    if (snapshots != null) {
+                        val items = snapshots.map { doc ->
+                            CustomColorTheme(
+                                id = doc.id,
+                                nameAr = doc.getString("nameAr") ?: "لون مخصص",
+                                nameEn = doc.getString("nameEn") ?: "Custom Color",
+                                backgroundHex = doc.getString("backgroundHex") ?: "#FF0F1016",
+                                surfaceHex = doc.getString("surfaceHex") ?: "#FF1E2230",
+                                surfaceVariantHex = doc.getString("surfaceVariantHex") ?: "#FF24293D",
+                                primaryHex = doc.getString("primaryHex") ?: "#FFE2E8F0",
+                                secondaryHex = doc.getString("secondaryHex") ?: "#FF38BDF8",
+                                tertiaryHex = doc.getString("tertiaryHex") ?: "#FF818CF8",
+                                outlineHex = doc.getString("outlineHex") ?: "#FF475569"
+                            )
+                        }
+                        customColors.value = items
+                    }
+                }
+            registrations.add(colorReg)
+
+            // 12. Commercial Categories Listener
+            val commCatReg = db.collection("commercial_categories")
+                .addSnapshotListener { snapshots, error ->
+                    if (snapshots != null) {
+                        val items = snapshots.map { doc ->
+                            CommercialCategory(
+                                id = doc.id,
+                                nameAr = doc.getString("nameAr") ?: "",
+                                nameEn = doc.getString("nameEn") ?: "",
+                                iconEmoji = doc.getString("iconEmoji") ?: "🛒",
+                                imageUrl = doc.getString("imageUrl") ?: ""
+                            )
+                        }
+                        commercialCategories.value = items
+                    }
+                }
+            registrations.add(commCatReg)
+
+            // 13. Commercial Shops Listener
+            val commShopReg = db.collection("commercial_shops")
+                .addSnapshotListener { snapshots, error ->
+                    if (snapshots != null) {
+                        val items = snapshots.map { doc ->
+                            CommercialShop(
+                                id = doc.id,
+                                nameAr = doc.getString("nameAr") ?: "",
+                                nameEn = doc.getString("nameEn") ?: "",
+                                phone = doc.getString("phone") ?: "",
+                                whatsapp = doc.getString("whatsapp") ?: "",
+                                address = doc.getString("address") ?: "",
+                                logoUrl = doc.getString("logoUrl") ?: ""
+                            )
+                        }
+                        commercialShops.value = items
+                    }
+                }
+            registrations.add(commShopReg)
+
+            // 14. Commercial Items Listener
+            val commItemReg = db.collection("commercial_items")
+                .addSnapshotListener { snapshots, error ->
+                    if (snapshots != null) {
+                        val items = snapshots.map { doc ->
+                            CommercialItem(
+                                id = doc.id,
+                                categoryId = doc.getString("categoryId") ?: "",
+                                shopId = doc.getString("shopId") ?: "",
+                                nameAr = doc.getString("nameAr") ?: "",
+                                nameEn = doc.getString("nameEn") ?: "",
+                                price = doc.getDouble("price") ?: 0.0,
+                                quantity = (doc.getLong("quantity") ?: 0L).toInt(),
+                                imageUrl = doc.getString("imageUrl") ?: "",
+                                description = doc.getString("description") ?: "",
+                                deliveryMethods = doc.getString("deliveryMethods") ?: "توصيل منزلي"
+                            )
+                        }
+                        commercialItems.value = items
+                    }
+                }
+            registrations.add(commItemReg)
 
             // 3. Service Providers Profile listener
             val provReg = db.collection("service_providers")
@@ -501,12 +590,93 @@ object FirebaseManager {
         db.collection("service_providers").document(id).update(updates).addOnSuccessListener { onComplete() }
     }
 
-    fun manageCategory(id: String, nameAr: String, nameEn: String, iconEmoji: String, isDelete: Boolean = false, onComplete: () -> Unit = {}) {
+    fun manageCategory(id: String, nameAr: String, nameEn: String, iconEmoji: String, parentId: String = "", isDelete: Boolean = false, onComplete: () -> Unit = {}) {
         val docRef = db.collection("categories").document(id)
         if (isDelete) {
             docRef.delete().addOnSuccessListener { onComplete() }
         } else {
-            val data = mapOf("nameAr" to nameAr, "nameEn" to nameEn, "iconEmoji" to iconEmoji)
+            val data = mapOf(
+                "nameAr" to nameAr,
+                "nameEn" to nameEn,
+                "iconEmoji" to iconEmoji,
+                "parentId" to parentId
+            )
+            docRef.set(data).addOnSuccessListener { onComplete() }
+        }
+    }
+
+    fun manageCustomColor(theme: CustomColorTheme, isDelete: Boolean = false, onComplete: () -> Unit = {}) {
+        val docRef = db.collection("custom_colors").document(theme.id)
+        if (isDelete) {
+            docRef.delete().addOnSuccessListener { onComplete() }
+        } else {
+            val data = mapOf(
+                "id" to theme.id,
+                "nameAr" to theme.nameAr,
+                "nameEn" to theme.nameEn,
+                "backgroundHex" to theme.backgroundHex,
+                "surfaceHex" to theme.surfaceHex,
+                "surfaceVariantHex" to theme.surfaceVariantHex,
+                "primaryHex" to theme.primaryHex,
+                "secondaryHex" to theme.secondaryHex,
+                "tertiaryHex" to theme.tertiaryHex,
+                "outlineHex" to theme.outlineHex
+            )
+            docRef.set(data).addOnSuccessListener { onComplete() }
+        }
+    }
+
+    fun manageCommercialCategory(cat: CommercialCategory, isDelete: Boolean = false, onComplete: () -> Unit = {}) {
+        val docRef = db.collection("commercial_categories").document(cat.id)
+        if (isDelete) {
+            docRef.delete().addOnSuccessListener { onComplete() }
+        } else {
+            val data = mapOf(
+                "id" to cat.id,
+                "nameAr" to cat.nameAr,
+                "nameEn" to cat.nameEn,
+                "iconEmoji" to cat.iconEmoji,
+                "imageUrl" to cat.imageUrl
+            )
+            docRef.set(data).addOnSuccessListener { onComplete() }
+        }
+    }
+
+    fun manageCommercialShop(shop: CommercialShop, isDelete: Boolean = false, onComplete: () -> Unit = {}) {
+        val docRef = db.collection("commercial_shops").document(shop.id)
+        if (isDelete) {
+            docRef.delete().addOnSuccessListener { onComplete() }
+        } else {
+            val data = mapOf(
+                "id" to shop.id,
+                "nameAr" to shop.nameAr,
+                "nameEn" to shop.nameEn,
+                "phone" to shop.phone,
+                "whatsapp" to shop.whatsapp,
+                "address" to shop.address,
+                "logoUrl" to shop.logoUrl
+            )
+            docRef.set(data).addOnSuccessListener { onComplete() }
+        }
+    }
+
+    fun manageCommercialItem(item: CommercialItem, isDelete: Boolean = false, onComplete: () -> Unit = {}) {
+        val docRef = db.collection("commercial_items").document(item.id)
+        if (isDelete) {
+            docRef.delete().addOnSuccessListener { onComplete() }
+        } else {
+            val data = mapOf(
+                "id" to item.id,
+                "categoryId" to item.categoryId,
+                "shopId" to item.shopId,
+                "nameAr" to item.nameAr,
+                "nameEn" to item.nameEn,
+                "price" to item.price,
+                "quantity" to item.quantity,
+                "imageUrl" to item.imageUrl,
+                "description" to item.description,
+                "deliveryMethods" to item.deliveryMethods
+            )
             docRef.set(data).addOnSuccessListener { onComplete() }
         }
     }
@@ -640,11 +810,78 @@ object FirebaseManager {
                     ServiceCategory("cat_5", "تعليم وتدريب", "Education & Training", "📚"),
                     ServiceCategory("cat_6", "مطاعم ومأكولات يمنية", "Restaurants & Food", "🍛"),
                     ServiceCategory("cat_7", "طوارئ وخدمات عامة", "Emergency Services", "🚨"),
-                    ServiceCategory("cat_8", "عقارات ومقاولات وبناء", "Real Estate & Housing", "🧱")
+                    ServiceCategory("cat_8", "عقارات ومقاولات وبناء", "Real Estate & Housing", "🧱"),
+                    
+                    // Added core requested partitions
+                    ServiceCategory("cat_elec", "صيانة كهرباء ومولدات", "Electricity & Generators", "⚡", "cat_1"),
+                    ServiceCategory("cat_plumb", "سباكة وصحي", "Plumbing & Sanitary", "🚰", "cat_1"),
+                    ServiceCategory("cat_maint", "صيانة وإنشاءات عامة", "General Maintenance", "🔧", "cat_1"),
+                    ServiceCategory("cat_med", "عيادات وأطقم طبية", "Clinics & Doctors", "🏥", "cat_2"),
+                    ServiceCategory("cat_edu", "تدريس ومدرسين خصوصي", "Teachers & Education", "🎓", "cat_5"),
+                    ServiceCategory("cat_law", "محاماة واستشارات قانونية", "Law & Legal Consultations", "⚖️", "cat_7")
                 )
                 for (cat in defaults) {
                     db.collection("categories").document(cat.id).set(
-                        mapOf("id" to cat.id, "nameAr" to cat.nameAr, "nameEn" to cat.nameEn, "iconEmoji" to cat.iconEmoji)
+                        mapOf(
+                            "id" to cat.id, 
+                            "nameAr" to cat.nameAr, 
+                            "nameEn" to cat.nameEn, 
+                            "iconEmoji" to cat.iconEmoji,
+                            "parentId" to cat.parentId
+                        )
+                    )
+                }
+            }
+        }
+
+        // Seed core commercial categories if empty
+        db.collection("commercial_categories").get().addOnSuccessListener { snapshots ->
+            if (snapshots.isEmpty) {
+                val list = listOf(
+                    CommercialCategory("comm_elec", "أدوات ومواد كهربائية", "Electrical Equipment", "🔌"),
+                    CommercialCategory("comm_phone", "تلفونات وملحقاتها", "Phones & Accessories", "📱"),
+                    CommercialCategory("comm_plumb", "مواد سباكة وحدادة ومقاولات", "Plumbing & Hardware", "🛠️")
+                )
+                for (c in list) {
+                    db.collection("commercial_categories").document(c.id).set(
+                        mapOf("id" to c.id, "nameAr" to c.nameAr, "nameEn" to c.nameEn, "iconEmoji" to c.iconEmoji, "imageUrl" to "")
+                    )
+                }
+            }
+        }
+
+        // Seed a default merchant shop if empty
+        db.collection("commercial_shops").get().addOnSuccessListener { snapshots ->
+            if (snapshots.isEmpty) {
+                val shop = CommercialShop("shop_1", "محلات البرق لمواد البناء والأجهزة", "Al-Barq Materials & Tools", "777644670", "777644670", "اليمن - صنعاء - شارع صخر", "")
+                db.collection("commercial_shops").document(shop.id).set(
+                    mapOf("id" to shop.id, "nameAr" to shop.nameAr, "nameEn" to shop.nameEn, "phone" to shop.phone, "whatsapp" to shop.whatsapp, "address" to shop.address, "logoUrl" to "")
+                )
+            }
+        }
+
+        // Seed default commercial items if empty
+        db.collection("commercial_items").get().addOnSuccessListener { snapshots ->
+            if (snapshots.isEmpty) {
+                val items = listOf(
+                    CommercialItem("item_1", "comm_elec", "shop_1", "لفة كابل كهرباء يمني أصلي 4ملم", "Yemeni Electric Wire 4mm", 18500.0, 30, "", "سلك نحاسي نقي بمواصفات ومقاييس يمنية فاخرة مقاومة للضغط العالي", "توصيل صنعاء خلال 24 ساعة"),
+                    CommercialItem("item_2", "comm_phone", "shop_1", "شاحن سفري ذكي أصلي بقوة 120 واط", "Xiaomi Travel Power Charger 120W", 14000.0, 15, "", "شاحن بمخرجات ذكية معتمد مع نظام تبريد وحماية فائق الكفاءة", "توصيل فوري لجميع المدن"),
+                    CommercialItem("item_3", "comm_plumb", "shop_1", "صنبور مياه إيطالي أصلي نحاس ثقيل", "Italian Brass Water Tap 1 Inch", 4200.0, 50, "", "محبس نحاسي إيطالي متين ومقاوم للصدأ بطبقة مصفحة", "توصيل عبر حافلات البريد")
+                )
+                for (i in items) {
+                    db.collection("commercial_items").document(i.id).set(
+                        mapOf(
+                            "id" to i.id,
+                            "categoryId" to i.categoryId,
+                            "shopId" to i.shopId,
+                            "nameAr" to i.nameAr,
+                            "nameEn" to i.nameEn,
+                            "price" to i.price,
+                            "quantity" to i.quantity,
+                            "imageUrl" to i.imageUrl,
+                            "description" to i.description,
+                            "deliveryMethods" to i.deliveryMethods
+                        )
                     )
                 }
             }

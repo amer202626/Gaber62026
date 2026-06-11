@@ -107,6 +107,8 @@ class MainActivity : ComponentActivity() {
             var showAddReviewDialog by remember { mutableStateOf<ServiceProvider?>(null) }
             var showReportDialog by remember { mutableStateOf<ServiceProvider?>(null) }
             var showLiveChatWindow by remember { mutableStateOf(false) }
+            var showAboutAppDialog by remember { mutableStateOf(false) }
+            var showAiAssistantDialog by remember { mutableStateOf(false) }
 
             // Dynamic filter states
             var searchTextInput by remember { mutableStateOf("") }
@@ -299,6 +301,101 @@ class MainActivity : ComponentActivity() {
 
                                 Divider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp, modifier = Modifier.padding(top = 8.dp))
                             }
+                        },
+                        bottomBar = {
+                            if (activeScreen != Screen.BACKDOOR) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(MaterialTheme.colorScheme.surface)
+                                        .navigationBarsPadding()
+                                        .border(width = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
+                                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        // Left element: ℹ️ About App Button
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            modifier = Modifier
+                                                .clickable { showAboutAppDialog = true }
+                                                .padding(6.dp)
+                                        ) {
+                                            Text(
+                                                text = "ℹ️",
+                                                fontSize = 20.sp,
+                                                modifier = Modifier.testTag("footer_about_icon")
+                                            )
+                                            Text(
+                                                text = if (isArabic) "عن التطبيق" else "About",
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+
+                                        // Central element: Sponsor Text & Support Line
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Text(
+                                                text = config.footerText,
+                                                fontSize = config.footerFontSize.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                textAlign = TextAlign.Center
+                                            )
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = "WAM: ${config.supportPhone}",
+                                                fontSize = (config.footerFontSize - 1).coerceAtLeast(10).sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = MaterialTheme.colorScheme.secondary,
+                                                textAlign = TextAlign.Center
+                                            )
+                                        }
+
+                                        // Right element: Smart Assistant Button
+                                        if (config.aiAssistantVisible && !config.aiAssistantDeleted) {
+                                            val aiColor = try {
+                                                Color(android.graphics.Color.parseColor(config.aiAssistantColorHex))
+                                            } catch (e: Exception) {
+                                                MaterialTheme.colorScheme.primary
+                                            }
+                                            Column(
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                modifier = Modifier
+                                                    .clickable { showAiAssistantDialog = true }
+                                                    .padding(6.dp)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(32.dp)
+                                                        .background(aiColor, CircleShape),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Text(
+                                                        text = "🧠",
+                                                        fontSize = 16.sp
+                                                    )
+                                                }
+                                                Text(
+                                                    text = if (isArabic) "المساعد" else "Assistant",
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = aiColor
+                                                )
+                                            }
+                                        } else {
+                                            Spacer(modifier = Modifier.width(36.dp))
+                                        }
+                                    }
+                                }
+                            }
                         }
                     ) { innerPadding ->
                         Box(
@@ -477,6 +574,21 @@ class MainActivity : ComponentActivity() {
                                 onDismiss = { showReportDialog = null }
                             )
                         }
+
+                        if (showAboutAppDialog) {
+                            AboutAppDialog(
+                                isArabic = isArabic,
+                                config = config,
+                                onDismiss = { showAboutAppDialog = false }
+                            )
+                        }
+
+                        if (showAiAssistantDialog) {
+                            AiAssistantDialog(
+                                isArabic = isArabic,
+                                onDismiss = { showAiAssistantDialog = false }
+                            )
+                        }
                     }
                 }
             }
@@ -506,10 +618,18 @@ fun HomeScreenLayout(
 ) {
     val context = LocalContext.current
     var showFilterPanel by remember { mutableStateOf(false) }
+    var activeTabMode by remember { mutableStateOf(0) } // 0: دليل الفنيين, 1: المتجر التجاري ومواد السلع
+    var activeSubCatId by remember { mutableStateOf("") }
+    var selectedCommCatId by remember { mutableStateOf("") }
+
+    val commercialCategoriesList by FirebaseManager.commercialCategories.collectAsState()
+    val commercialShopsList by FirebaseManager.commercialShops.collectAsState()
+    val commercialItemsList by FirebaseManager.commercialItems.collectAsState()
+    val appConfig by FirebaseManager.appConfig.collectAsState()
 
     // Multi-Dimensional Query Combinator computed on changes
     val filteredList = remember(
-        providers, searchQuery, selectedCategory, selectedCity, selectedMinRating, selectedVerifiedState
+        providers, searchQuery, selectedCategory, activeSubCatId, selectedCity, selectedMinRating, selectedVerifiedState, categories
     ) {
         providers.filter { p ->
             val matchText = searchQuery.isEmpty() ||
@@ -517,7 +637,14 @@ fun HomeScreenLayout(
                     p.subCategory.contains(searchQuery, ignoreCase = true) ||
                     p.address.contains(searchQuery, ignoreCase = true)
 
-            val matchCategory = selectedCategory.isEmpty() || p.categoryId == selectedCategory
+            val matchCategory = selectedCategory.isEmpty() || p.categoryId == selectedCategory ||
+                    (categories.any { it.parentId == selectedCategory && (p.subCategory == it.nameAr || p.subCategory == it.nameEn) })
+
+            val matchSubCategory = activeSubCatId.isEmpty() || {
+                val subCatObj = categories.firstOrNull { it.id == activeSubCatId }
+                subCatObj != null && (p.subCategory == subCatObj.nameAr || p.subCategory == subCatObj.nameEn)
+            }()
+
             val matchCity = selectedCity.isEmpty() || p.area.contains(selectedCity) || p.address.contains(selectedCity)
             val matchRating = p.averageRating >= selectedMinRating
             val matchVerify = when (selectedVerifiedState) {
@@ -526,13 +653,29 @@ fun HomeScreenLayout(
                 else -> true
             }
 
-            matchText && matchCategory && matchCity && matchRating && matchVerify
+            matchText && matchCategory && matchSubCategory && matchCity && matchRating && matchVerify
         }.sortedWith(
-            compareByDescending<ServiceProvider> { it.isPinned }
-                .thenByDescending { it.isRecommended }
+            compareByDescending<ServiceProvider> { p -> p.isPinned }
+                .thenByDescending { p -> p.isRecommended }
                 .thenByDescending { p -> p.hasPremiumSubscription }
-                .thenByDescending { it.averageRating }
+                .thenByDescending { p -> p.averageRating }
         )
+    }
+
+    // Commercial marketplace filter
+    val filteredCommercialItems = remember(
+        commercialItemsList, searchQuery, selectedCommCatId
+    ) {
+        commercialItemsList.filter { item ->
+            val matchText = searchQuery.isEmpty() ||
+                    item.nameAr.contains(searchQuery, ignoreCase = true) ||
+                    item.nameEn.contains(searchQuery, ignoreCase = true) ||
+                    item.description.contains(searchQuery, ignoreCase = true)
+
+            val matchCategory = selectedCommCatId.isEmpty() || item.categoryId == selectedCommCatId
+
+            matchText && matchCategory
+        }.sortedByDescending { it.quantity > 0 }
     }
 
     LazyColumn(
@@ -556,304 +699,700 @@ fun HomeScreenLayout(
             }
         }
 
-        // Direct Core Search and Microphone widget
+        // Dual Segment Switcher Tab
         item {
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp))
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                TextField(
-                    value = searchQuery,
-                    onValueChange = onSearchChanged,
-                    placeholder = {
-                        Text(
-                            text = if (isArabic) "ابحث عن مهندس، سباك، طبيب..." else "Search plumber, doctor...",
-                            fontSize = 13.sp
-                        )
-                    },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search icon") },
-                    trailingIcon = {
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { onSearchChanged("") }) {
-                                Icon(Icons.Default.Clear, contentDescription = "Clear")
-                            }
-                        } else {
-                            IconButton(onClick = {
-                                try {
-                                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                                        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                                        putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ar-YE")
-                                        putExtra(RecognizerIntent.EXTRA_PROMPT, if (isArabic) "تحدث بصوتك للبحث" else "Speak to search")
-                                    }
-                                    voiceSearchLauncher.launch(intent)
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "التعرف الصوتي غير مدعوم على هذا الجهاز", Toast.LENGTH_SHORT).show()
-                                }
-                            }) {
-                                Icon(Icons.Default.PlayArrow, contentDescription = "Mic") // Alternate mic symbol representation
-                            }
-                        }
-                    },
+                val isServ = activeTabMode == 0
+                Box(
                     modifier = Modifier
                         .weight(1f)
-                        .testTag("home_search_input"),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = TextFieldDefaults.colors(
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent
-                    ),
-                    singleLine = true
-                )
-
-                Button(
-                    onClick = { showFilterPanel = !showFilterPanel },
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (showFilterPanel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                        contentColor = if (showFilterPanel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
-                    ),
-                    modifier = Modifier.height(56.dp)
+                        .background(color = if (isServ) MaterialTheme.colorScheme.primary else Color.Transparent, shape = RoundedCornerShape(10.dp))
+                        .clickable { activeTabMode = 0 }
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Default.Menu, contentDescription = "Filters")
+                    Text(
+                        text = if (isArabic) "💼 دليل الخدمات والمهن" else "💼 Directory of Services",
+                        fontWeight = FontWeight.Bold,
+                        color = if (isServ) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 13.sp
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .background(color = if (!isServ) MaterialTheme.colorScheme.primary else Color.Transparent, shape = RoundedCornerShape(10.dp))
+                        .clickable { activeTabMode = 1 }
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (isArabic) "🛒 المتجر التجاري والسلع" else "🛒 Commercial Market",
+                        fontWeight = FontWeight.Bold,
+                        color = if (!isServ) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 13.sp
+                    )
                 }
             }
         }
 
-        // Expanding Filtering Options Sheet
-        item {
-            AnimatedVisibility(visible = showFilterPanel) {
-                Card(
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                ) {
-                    Column(
-                        modifier = Modifier.padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+        if (activeTabMode == 0) {
+            // DIRECTORY {SERVICES} MODE
+
+            // Direct Core Search and Microphone widget
+            if (appConfig.searchBarVisible) {
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(
-                            text = if (isArabic) "خيارات التصفية المتطورة" else "Advanced Filter Suite",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-
-                        // 1. City / Governorate Row selector
-                        Text(text = if (isArabic) "المحافظة:" else "Governorate:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        val cities = listOf("صنعاء", "عدن", "تعز", "حضرموت", "الحديدة", "إب")
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            item {
-                                FilterChip(
-                                    selected = selectedCity.isEmpty(),
-                                    onClick = { onCitySelected("") },
-                                    label = { Text(text = if (isArabic) "الكل [🇾🇪]" else "All") }
+                        TextField(
+                            value = searchQuery,
+                            onValueChange = onSearchChanged,
+                            placeholder = {
+                                Text(
+                                    text = if (isArabic) appConfig.searchPlaceholder else appConfig.searchPlaceholderEn,
+                                    fontSize = 13.sp
                                 )
-                            }
-                            items(cities) { city ->
-                                FilterChip(
-                                    selected = selectedCity == city,
-                                    onClick = { onCitySelected(city) },
-                                    label = { Text(text = city) }
-                                )
-                            }
-                        }
-
-                        // 2. Minimum Rating Slider/Selector
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(text = if (isArabic) "أدنى تقييم:" else "Min Rating:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                listOf(0f, 3f, 4f, 4.5f).forEach { score ->
-                                    val isMatch = selectedMinRating == score
-                                    Box(
-                                        modifier = Modifier
-                                            .background(
-                                                color = if (isMatch) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
-                                                shape = RoundedCornerShape(8.dp)
-                                            )
-                                            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
-                                            .clickable { onMinRatingSelected(score) }
-                                            .padding(horizontal = 10.dp, vertical = 6.dp)
-                                    ) {
-                                        Text(
-                                            text = if (score == 0f) (if (isArabic) "أي تقييم" else "Any") else "$score ⭐",
-                                            fontSize = 11.sp,
-                                            color = if (isMatch) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
-                                        )
+                            },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search icon") },
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { onSearchChanged("") }) {
+                                    Icon(Icons.Default.Clear, contentDescription = "Clear")
+                                }
+                            } else {
+                                IconButton(onClick = {
+                                    try {
+                                        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ar-YE")
+                                            putExtra(RecognizerIntent.EXTRA_PROMPT, if (isArabic) "تحدث بصوتك للبحث" else "Speak to search")
+                                        }
+                                        voiceSearchLauncher.launch(intent)
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "التعرف الصوتي غير مدعوم على هذا الجهاز", Toast.LENGTH_SHORT).show()
                                     }
+                                }) {
+                                    Icon(Icons.Default.PlayArrow, contentDescription = "Mic") // Alternate mic symbol representation
                                 }
                             }
-                        }
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("home_search_input"),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = TextFieldDefaults.colors(
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent
+                        ),
+                        singleLine = true
+                    )
 
-                        // 3. Verification Type Radio selections
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(text = if (isArabic) "نوع الحساب:" else "Acct Type:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                            Spacer(modifier = Modifier.width(10.dp))
-                            listOf(
-                                Pair(0, if (isArabic) "الكل" else "All"),
-                                Pair(1, if (isArabic) "موثق ✓" else "Verified"),
-                                Pair(2, if (isArabic) "غير موثق" else "Unverified")
-                            ).forEach { (stateCode, name) ->
-                                val isAct = selectedVerifiedState == stateCode
-                                Box(
-                                    modifier = Modifier
-                                        .padding(end = 6.dp)
-                                        .background(
-                                            color = if (isAct) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
-                                            shape = RoundedCornerShape(8.dp)
-                                        )
-                                        .clickable { onVerifiedSelected(stateCode) }
-                                        .padding(horizontal = 10.dp, vertical = 6.dp)
-                                ) {
-                                    Text(
-                                        text = name,
-                                        fontSize = 11.sp,
-                                        color = if (isAct) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                    Button(
+                        onClick = { showFilterPanel = !showFilterPanel },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (showFilterPanel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = if (showFilterPanel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                        ),
+                        modifier = Modifier.height(56.dp)
+                    ) {
+                        Icon(Icons.Default.Menu, contentDescription = "Filters")
+                    }
+                }
+            }
+        }
+
+            // Expanding Filtering Options Sheet
+            item {
+                AnimatedVisibility(visible = showFilterPanel) {
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(
+                                text = if (isArabic) "خيارات التصفية المتطورة" else "Advanced Filter Suite",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+
+                            // 1. City / Governorate Row selector
+                            Text(text = if (isArabic) "المحافظة:" else "Governorate:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            val cities = listOf("صنعاء", "عدن", "تعز", "حضرموت", "الحديدة", "إب")
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                item {
+                                    FilterChip(
+                                        selected = selectedCity.isEmpty(),
+                                        onClick = { onCitySelected("") },
+                                        label = { Text(text = if (isArabic) "الكل [🇾🇪]" else "All") }
+                                    )
+                                }
+                                items(cities) { city ->
+                                    FilterChip(
+                                        selected = selectedCity == city,
+                                        onClick = { onCitySelected(city) },
+                                        label = { Text(text = city) }
                                     )
                                 }
                             }
-                        }
 
-                        // Reset Clear Button
-                        OutlinedButton(
-                            onClick = {
-                                onCategorySelected("")
-                                onCitySelected("")
-                                onMinRatingSelected(0f)
-                                onVerifiedSelected(0)
-                                onSearchChanged("")
-                            },
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.align(Alignment.End)
-                        ) {
-                            Text(text = if (isArabic) "إعادة تعيين الفلاتر" else "Reset Filters", fontSize = 11.sp)
+                            // 2. Minimum Rating Slider/Selector
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(text = if (isArabic) "أدنى تقييم:" else "Min Rating:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    listOf(0f, 3f, 4f, 4.5f).forEach { score ->
+                                        val isMatch = selectedMinRating == score
+                                        Box(
+                                            modifier = Modifier
+                                                .background(
+                                                    color = if (isMatch) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+                                                    shape = RoundedCornerShape(8.dp)
+                                                )
+                                                .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                                                .clickable { onMinRatingSelected(score) }
+                                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                                        ) {
+                                            Text(
+                                                text = if (score == 0f) (if (isArabic) "أي تقييم" else "Any") else "$score ⭐",
+                                                fontSize = 11.sp,
+                                                color = if (isMatch) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 3. Verification Type Radio selections
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(text = if (isArabic) "نوع الحساب:" else "Acct Type:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                Spacer(modifier = Modifier.width(10.dp))
+                                listOf(
+                                    Pair(0, if (isArabic) "الكل" else "All"),
+                                    Pair(1, if (isArabic) "موثق ✓" else "Verified"),
+                                    Pair(2, if (isArabic) "غير موثق" else "Unverified")
+                                ).forEach { (stateCode, name) ->
+                                    val isAct = selectedVerifiedState == stateCode
+                                    Box(
+                                        modifier = Modifier
+                                            .padding(end = 6.dp)
+                                            .background(
+                                                color = if (isAct) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+                                                shape = RoundedCornerShape(8.dp)
+                                            )
+                                            .clickable { onVerifiedSelected(stateCode) }
+                                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    ) {
+                                        Text(
+                                            text = name,
+                                            fontSize = 11.sp,
+                                            color = if (isAct) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Reset Clear Button
+                            OutlinedButton(
+                                onClick = {
+                                    onCategorySelected("")
+                                    onCitySelected("")
+                                    onMinRatingSelected(0f)
+                                    onVerifiedSelected(0)
+                                    onSearchChanged("")
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.align(Alignment.End)
+                            ) {
+                                Text(text = if (isArabic) "إعادة تعيين الفلاتر" else "Reset Filters", fontSize = 11.sp)
+                            }
                         }
                     }
                 }
             }
-        }
 
-        // Horizontal Category Tab Chips Scrolling list
-        item {
-            Text(
-                text = if (isArabic) "أقسام الخدمات 🗂️" else "Service Categories 🗂️",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.secondary,
-                modifier = Modifier.padding(bottom = 6.dp)
-            )
+            // Horizontal Category Tab Chips Scrolling list (Parent only)
+            item {
+                Text(
+                    text = if (isArabic) "أقسام الخدمات الرئيسية 🗂️" else "Service Categories 🗂️",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.padding(bottom = 6.dp)
+                )
 
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                item {
-                    val activeAll = selectedCategory.isEmpty()
-                    Box(
-                        modifier = Modifier
-                            .background(
-                                color = if (activeAll) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                shape = RoundedCornerShape(15.dp)
-                            )
-                            .border(
-                                width = 1.dp,
-                                color = if (activeAll) Color.Transparent else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
-                                shape = RoundedCornerShape(15.dp)
-                            )
-                            .clickable { onCategorySelected("") }
-                            .padding(horizontal = 16.dp, vertical = 10.dp)
-                    ) {
-                        Text(
-                            text = if (isArabic) "📂 الكل" else "📂 All",
-                            color = if (activeAll) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
-                        )
-                    }
-                }
+                val mainCategories = categories.filter { it.parentId.isEmpty() }
 
-                items(categories) { cat ->
-                    val isSel = cat.id == selectedCategory
-                    Box(
-                        modifier = Modifier
-                            .background(
-                                color = if (isSel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                shape = RoundedCornerShape(15.dp)
-                            )
-                            .border(
-                                width = 1.dp,
-                                color = if (isSel) Color.Transparent else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
-                                shape = RoundedCornerShape(15.dp)
-                            )
-                            .clickable { onCategorySelected(cat.id) }
-                            .padding(horizontal = 16.dp, vertical = 10.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(text = cat.iconEmoji, fontSize = 14.sp)
-                            Spacer(modifier = Modifier.width(6.dp))
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    item {
+                        val activeAll = selectedCategory.isEmpty()
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    color = if (activeAll) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                    shape = RoundedCornerShape(15.dp)
+                                )
+                                .border(
+                                    width = 1.dp,
+                                    color = if (activeAll) Color.Transparent else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                                    shape = RoundedCornerShape(15.dp)
+                                )
+                                .clickable {
+                                    onCategorySelected("")
+                                    activeSubCatId = ""
+                                }
+                                .padding(horizontal = 16.dp, vertical = 10.dp)
+                        ) {
                             Text(
-                                text = if (isArabic) cat.nameAr else cat.nameEn,
-                                color = if (isSel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                text = if (isArabic) "📂 الكل" else "📂 All",
+                                color = if (activeAll) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp
                             )
                         }
                     }
+
+                    items(mainCategories) { cat ->
+                        val isSel = cat.id == selectedCategory
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    color = if (isSel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                    shape = RoundedCornerShape(15.dp)
+                                )
+                                .border(
+                                    width = 1.dp,
+                                    color = if (isSel) Color.Transparent else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                                    shape = RoundedCornerShape(15.dp)
+                                )
+                                .clickable {
+                                    onCategorySelected(cat.id)
+                                    activeSubCatId = ""
+                                }
+                                .padding(horizontal = 16.dp, vertical = 10.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(text = cat.iconEmoji, fontSize = 14.sp)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = if (isArabic) cat.nameAr else cat.nameEn,
+                                    color = if (isSel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                            }
+                        }
+                    }
                 }
             }
-        }
 
-        // Section Title: Directories Listing
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
+            // Specialized Subcategories list
+            val subCategories = categories.filter { it.parentId == selectedCategory }
+            if (selectedCategory.isNotEmpty() && subCategories.isNotEmpty()) {
+                item {
+                    Text(
+                        text = if (isArabic) "📌 التخصصات الفرعية المتاحة:" else "📌 Specialized Subcategories:",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
+                    )
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        item {
+                            val activeAll = activeSubCatId.isEmpty()
+                            Box(
+                                modifier = Modifier
+                                    .background(
+                                        color = if (activeAll) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.surfaceVariant,
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                    .clickable { activeSubCatId = "" }
+                                    .padding(horizontal = 14.dp, vertical = 7.dp)
+                            ) {
+                                Text(
+                                    text = if (isArabic) "🔍 الكل بالفروع" else "All Sub-Branches",
+                                    color = if (activeAll) MaterialTheme.colorScheme.onSecondary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        items(subCategories) { subCat ->
+                            val isSel = activeSubCatId == subCat.id
+                            Box(
+                                modifier = Modifier
+                                    .background(
+                                        color = if (isSel) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.surfaceVariant,
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                    .clickable { activeSubCatId = subCat.id }
+                                    .padding(horizontal = 14.dp, vertical = 7.dp)
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(text = subCat.iconEmoji, fontSize = 12.sp)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = if (isArabic) subCat.nameAr else subCat.nameEn,
+                                        color = if (isSel) MaterialTheme.colorScheme.onSecondary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Section Title: Directories Listing
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = if (isArabic) "المهنيون والحرفيون النشطون (${filteredList.size})" else "Active Service Professionals (${filteredList.size})",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                    if (filteredList.isNotEmpty()) {
+                        Text(text = "⭐ الأعلى تقييماً أولاً", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
+
+            if (filteredList.isEmpty()) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 40.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(text = "🔍", fontSize = 48.sp)
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = if (isArabic) {
+                                    "لا توجد نتائج مطابقة لخيارات بحثك حالياً.\nتتوفر خدمات بكل من صنعاء، عدن، حضرموت، تعز."
+                                } else {
+                                    "No matches found with current inputs."
+                                },
+                                textAlign = TextAlign.Center,
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            } else {
+                items(filteredList) { p ->
+                    ProviderCardItem(
+                        isArabic = isArabic,
+                        provider = p,
+                        onItemClick = { onProviderClicked(p) }
+                    )
+                }
+            }
+
+        } else {
+            // COMMERCIAL MARKETPLACE MODE (PRODUCTS & SHOPPING)
+
+            // Dynamic search bar if active
+            if (appConfig.searchBarVisible) {
+                item {
+                    TextField(
+                        value = searchQuery,
+                        onValueChange = onSearchChanged,
+                        placeholder = {
+                            Text(
+                                text = if (isArabic) "ابحث في المتجر عن سلع، مولدات، قطع غيار..." else "Search products: phones, pipes...",
+                                fontSize = 13.sp
+                            )
+                        },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search market") },
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { onSearchChanged("") }) {
+                                    Icon(Icons.Default.Clear, contentDescription = "Clear")
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("market_search_input"),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = TextFieldDefaults.colors(
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent
+                        ),
+                        singleLine = true
+                    )
+                }
+            }
+
+            // Commercial Category Chips Horizontal Scroll
+            item {
                 Text(
-                    text = if (isArabic) "المهنيون والحرفيون النشطون (${filteredList.size})" else "Active Service Professionals (${filteredList.size})",
+                    text = if (isArabic) "أقسام الأجهزة ومواد السباكة والكهرباء 🔋" else "Shop Departments 🔋",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.padding(bottom = 4.dp)
+                )
+
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    item {
+                        val activeAll = selectedCommCatId.isEmpty()
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    color = if (activeAll) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                                .clickable { selectedCommCatId = "" }
+                                .padding(horizontal = 14.dp, vertical = 8.dp)
+                        ) {
+                            Text(
+                                text = if (isArabic) "🛒 المعرض الشامل" else "All Commodities",
+                                color = if (activeAll) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    items(commercialCategoriesList) { cc ->
+                        val isSel = cc.id == selectedCommCatId
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    color = if (isSel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                                .clickable { selectedCommCatId = cc.id }
+                                .padding(horizontal = 14.dp, vertical = 8.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(text = cc.iconEmoji, fontSize = 12.sp)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = if (isArabic) cc.nameAr else cc.nameEn,
+                                    color = if (isSel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Commercial Commodities Listing Title
+            item {
+                Text(
+                    text = if (isArabic) "السلع والقطع المعروضة للبيع (${filteredCommercialItems.size})" else "Available Stock Goods (${filteredCommercialItems.size})",
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground
                 )
-                if (filteredList.isNotEmpty()) {
-                    Text(text = "⭐ الأعلى تقييماً أولاً", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
-                }
             }
-        }
 
-        if (filteredList.isEmpty()) {
-            item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 40.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(text = "🔍", fontSize = 48.sp)
-                        Spacer(modifier = Modifier.height(12.dp))
+            if (filteredCommercialItems.isEmpty()) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 40.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
                         Text(
-                            text = if (isArabic) {
-                                "لا توجد نتائج مطابقة لخيارات بحثك حالياً.\nتتوفر خدمات بكل من صنعاء، عدن، حضرموت، تعز."
-                            } else {
-                                "No matches found with current inputs."
-                            },
-                            textAlign = TextAlign.Center,
+                            text = if (isArabic) "لا توجد سلع متوفرة تطابق خيارات الاستعلام حالياً." else "No commodities found matching values.",
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
-            }
-        } else {
-            items(filteredList) { p ->
-                ProviderCardItem(
-                    isArabic = isArabic,
-                    provider = p,
-                    onItemClick = { onProviderClicked(p) }
-                )
+            } else {
+                items(filteredCommercialItems) { item ->
+                    val shop = commercialShopsList.firstOrNull { it.id == item.shopId }
+                    val shopName = shop?.let { if (isArabic) it.nameAr else it.nameEn } ?: "محل شريك"
+                    val shopPhone = shop?.phone ?: ""
+                    val shopWhatsapp = shop?.whatsapp ?: ""
+
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = if (isArabic) item.nameAr else item.nameEn,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "🏢 $shopName",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+
+                                val isAvailable = item.quantity > 0
+                                Box(
+                                    modifier = Modifier
+                                        .background(
+                                            color = if (isAvailable) Color(0xFFE8F5E9) else Color(0xFFFFEBEE),
+                                            shape = RoundedCornerShape(6.dp)
+                                        )
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        text = if (isAvailable) "${if (isArabic) "متوفر: " else "Qty: "}${item.quantity}" else (if (isArabic) "نفذت الكمية" else "Out of stock"),
+                                        fontSize = 10.sp,
+                                        color = if (isAvailable) Color(0xFF2E7D32) else Color(0xFFC62828),
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = item.description,
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 3
+                            )
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        text = if (isArabic) "السعر المقترح:" else "Unit Price:",
+                                        fontSize = 10.sp,
+                                        color = Color.Gray
+                                    )
+                                    Text(
+                                        text = "${String.format("%,.0f", item.price)} YER",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.secondary
+                                    )
+                                }
+
+                                if (item.deliveryMethods.isNotEmpty()) {
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text(
+                                            text = if (isArabic) "التوصيل:" else "Delivery:",
+                                            fontSize = 10.sp,
+                                            color = Color.Gray
+                                        )
+                                        Text(
+                                            text = item.deliveryMethods,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Button(
+                                    onClick = {
+                                        if (shopWhatsapp.isNotEmpty()) {
+                                            try {
+                                                val msg = if (isArabic) {
+                                                    "السلام عليكم 🏢 أريد شراء السلعة المعروضة: ${item.nameAr} بسعر ${item.price} ر.ي"
+                                                } else {
+                                                    "Hello, I would like to order: ${item.nameEn}"
+                                                }
+                                                val uri = Uri.parse("https://wa.me/$shopWhatsapp?text=${Uri.encode(msg)}")
+                                                context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                                            } catch (e: Exception) {
+                                                Toast.makeText(context, "تطبيق واتساب غير متوفر", Toast.LENGTH_SHORT).show()
+                                            }
+                                        } else {
+                                            Toast.makeText(context, "رقم الواتساب غير مهيأ", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Icon(Icons.Default.Send, contentDescription = "Whatsapp", modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(text = if (isArabic) "طلب واتساب" else "Order WhatsApp", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+
+                                Button(
+                                    onClick = {
+                                        if (shopPhone.isNotEmpty()) {
+                                            try {
+                                                context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$shopPhone")))
+                                            } catch (e: Exception) {
+                                                Toast.makeText(context, "الصالحة للاتصال غير مدعومة", Toast.LENGTH_SHORT).show()
+                                            }
+                                        } else {
+                                            Toast.makeText(context, "المحل لا يملك رقم هاتف", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Icon(Icons.Default.Phone, contentDescription = "Call")
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(text = if (isArabic) "اتصل بالبائع" else "Hotline Call", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -964,115 +1503,184 @@ fun ProviderCardItem(
     provider: ServiceProvider,
     onItemClick: () -> Unit
 ) {
+    val context = LocalContext.current
     Card(
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(20.dp),
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onItemClick() },
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // Rounded Provider Avatar Thumbnail With Badge
-            Box(modifier = Modifier.size(72.dp)) {
-                AsyncImage(
-                    model = provider.imageUrl.ifEmpty { "https://picsum.photos/200?id=${provider.id}" },
-                    contentDescription = provider.fullName,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color.Gray.copy(alpha = 0.15f))
-                )
-
-                if (provider.isPinned) {
-                    Box(
+            // Top Row: Avatar, Name & Verification
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(modifier = Modifier.size(68.dp)) {
+                    AsyncImage(
+                        model = provider.imageUrl.ifEmpty { "https://picsum.photos/200?id=${provider.id}" },
+                        contentDescription = provider.fullName,
+                        contentScale = ContentScale.Crop,
                         modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .background(Color(0xFFFFD700), RoundedCornerShape(4.dp))
-                            .padding(horizontal = 4.dp, vertical = 2.dp)
-                    ) {
-                        Text(text = "👑", fontSize = 8.sp)
+                            .fillMaxSize()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.Gray.copy(alpha = 0.15f))
+                    )
+                    if (provider.isPinned) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .background(Color(0xFFFFD700), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                        ) {
+                            Text(text = "👑", fontSize = 8.sp)
+                        }
                     }
                 }
-            }
 
-            Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(12.dp))
 
-            // Text Info Panel Metadata details
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = provider.fullName.ifEmpty { "ماهر محمد طاهر" },
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "⭐ ${if (provider.ratingCount > 0) String.format("%.1f", provider.averageRating) else "5.0"}",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Black,
+                                color = Color(0xFFFFD700)
+                            )
+                            Text(text = " (5.0 نجوم)", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(2.dp))
+
                     Text(
-                        text = provider.fullName,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        text = provider.subCategory.ifEmpty { "مهندس كهربائي ممتاز" },
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    if (provider.isVerified) {
-                        Box(
-                            modifier = Modifier
-                                .background(Color(0xFFE8F5E9), RoundedCornerShape(6.dp))
-                                .border(0.5.dp, Color(0xFF4CAF50), RoundedCornerShape(6.dp))
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                        ) {
-                            Text(text = "✓ موثق", fontSize = 9.sp, color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold)
-                        }
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .background(Color(0xFFFFF3E0), RoundedCornerShape(6.dp))
-                                .border(0.5.dp, Color(0xFFFF9800), RoundedCornerShape(6.dp))
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                        ) {
-                            Text(text = p_review_placeholder(isArabic), fontSize = 9.sp, color = Color(0xFFE65100))
-                        }
-                    }
                 }
 
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.width(6.dp))
 
-                Text(
-                    text = provider.subCategory,
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                Icon(
+                    Icons.Default.PlayArrow,
+                    contentDescription = "Details logo",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(16.dp)
                 )
+            }
 
-                Spacer(modifier = Modifier.height(4.dp))
+            Divider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(text = "📍 $getYemenFlag Yemen - ", fontSize = 11.sp, color = MaterialTheme.colorScheme.secondary)
-                        Text(text = provider.area, fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                    }
+            // Location, Address, Distance, Phone info - High Contrast!
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                // Address Row
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(text = "📍 العنوان:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "${provider.address.ifEmpty { "صنعاء، شارع السنين القريبي" }} (${provider.area.ifEmpty { "مديرية معين" }})",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
 
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(text = "⭐ ${String.format("%.1f", provider.averageRating)}", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        Text(text = " (${provider.ratingCount})", fontSize = 10.sp, color = Color.Gray)
-                    }
+                // Distance Estimator Row - 2.3 km
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(text = "🚗 المسافة التقديرية:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "2.3 كم تقريباً",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                // Phone Line Row
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(text = "📞 رقم الاتصال المباشر:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = provider.phone.ifEmpty { "777644670" },
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
                 }
             }
 
-            Spacer(modifier = Modifier.width(6.dp))
+            // Quick Call Actions
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = {
+                        try {
+                            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${provider.phone.ifEmpty { "777644670" }}"))
+                            context.startActivity(intent)
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "لا يمكن الاتصال بالرقم", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.weight(1f).height(40.dp)
+                ) {
+                    Icon(Icons.Default.Phone, contentDescription = "Call direct", modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(text = if (isArabic) "اتصال" else "Call", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
 
-            // Touch click Indicator
-            Icon(
-                Icons.Default.PlayArrow, // arrow replacement format
-                contentDescription = "Details",
-                tint = MaterialTheme.colorScheme.outline,
-                modifier = Modifier.size(16.dp)
-            )
+                Button(
+                    onClick = {
+                        try {
+                            val waNum = provider.whatsapp.ifEmpty { "777644670" }
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://api.whatsapp.com/send?phone=$waNum"))
+                            context.startActivity(intent)
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "تعذر تشغيل تطبيق واتساب", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.weight(1f).height(40.dp)
+                ) {
+                    Icon(Icons.Default.Send, contentDescription = "WhatsApp direct", modifier = Modifier.size(14.dp), tint = Color.White)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(text = if (isArabic) "واتساب" else "WhatsApp", fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            }
         }
     }
 }
@@ -1215,7 +1823,27 @@ fun ProviderDetailsDialog(
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text(text = if (isArabic) "📍 العنوان بالتفصيل:" else "📍 Detail Location:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
-                            Text(text = provider.address + " - " + provider.area, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
+                            Text(text = (provider.address.ifEmpty { "صنعاء، شارع السنين القريبي" }) + " - " + (provider.area.ifEmpty { "مديرية معين" }), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+
+                            Divider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(text = if (isArabic) "🚗 المسافة التقديرية:" else "🚗 Estimated Distance:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
+                                Text(text = if (isArabic) "2.3 كم تقريباً" else "Approx 2.3 km", fontSize = 12.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
+                            }
+
+                            Divider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(text = if (isArabic) "📞 رقم الاتصال المباشر:" else "📞 Direct Phone:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
+                                Text(text = provider.phone.ifEmpty { "777644670" }, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                            }
 
                             Divider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
 
@@ -1227,7 +1855,8 @@ fun ProviderDetailsDialog(
                                 Text(
                                     text = if (provider.previewPrice > 0) "${provider.previewPrice} ريال يمني" else (if (isArabic) "مجاني" else "Free"),
                                     fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                             }
                         }
@@ -1939,6 +2568,275 @@ fun BackdoorLoginDialog(
     }
 }
 
+// ---------------------- ABOUT APP BRAND DIALOG SCREEN ----------------------
+@Composable
+fun AboutAppDialog(
+    isArabic: Boolean,
+    config: AppConfig,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(24.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(20.dp)
+                    .fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (isArabic) "عن التطبيق" else "About App",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "Close")
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .size(64.dp)
+                        .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(16.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = config.logoEmoji.ifEmpty { "🇾🇪" },
+                        fontSize = 32.sp
+                    )
+                }
+
+                Text(
+                    text = config.appName,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    textAlign = TextAlign.Center
+                )
+
+                Text(
+                    text = if (isArabic) "دليل الخدمات اليمني الشامل لربطك فوراً بأفضل الحرفيين والمهنيين." else "The comprehensive Yemen services directory connecting you instantly to professionals.",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 16.sp
+                )
+
+                Divider(color = MaterialTheme.colorScheme.outlineVariant)
+
+                if (config.welcomeMessage.isNotEmpty()) {
+                    Text(
+                        text = config.welcomeMessage,
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        textAlign = TextAlign.Center,
+                        fontWeight = FontWeight.Medium,
+                        lineHeight = 16.sp
+                    )
+                    Divider(color = MaterialTheme.colorScheme.outlineVariant)
+                }
+
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                try {
+                                    val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${config.supportPhone}"))
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {}
+                            }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(text = "📞", fontSize = 16.sp, modifier = Modifier.padding(end = 10.dp))
+                        Column {
+                            Text(text = if (isArabic) "رقم الدعم الفني:" else "Support Hotline:", fontSize = 10.sp, color = MaterialTheme.colorScheme.secondary)
+                            Text(text = config.supportPhone, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                try {
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://api.whatsapp.com/send?phone=${config.supportPhone}"))
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {}
+                            }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(text = "💬", fontSize = 16.sp, modifier = Modifier.padding(end = 10.dp))
+                        Column {
+                            Text(text = if (isArabic) "مراسلة عبر واتساب مباشرة:" else "WhatsApp direct hotline:", fontSize = 10.sp, color = MaterialTheme.colorScheme.secondary)
+                            Text(text = "واتساب الدعم المباشر", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF25D366))
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                try {
+                                    val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:${config.supportEmail}"))
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {}
+                            }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(text = "✉️", fontSize = 16.sp, modifier = Modifier.padding(end = 10.dp))
+                        Column {
+                            Text(text = if (isArabic) "البريد الإلكتروني:" else "Email address:", fontSize = 10.sp, color = MaterialTheme.colorScheme.secondary)
+                            Text(text = config.supportEmail, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                        }
+                    }
+                }
+
+                if (config.appDownloadUrl.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Button(
+                        onClick = {
+                            try {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(config.appDownloadUrl))
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "لم يضع المشرف رابطاً صالحاً لموقع التحديث", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFD700)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Update app", tint = Color.Black, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (isArabic) "تحميل وتحديث التطبيق اليدوي 🔄" else "Download & Update App 🔄",
+                            color = Color.Black,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+
+                Text(
+                    text = "V2.6.2026 • © MAW 777644670",
+                    fontSize = 10.sp,
+                    color = Color.Gray,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
+        }
+    }
+}
+
+// ---------------------- OFFLINE SMART ASSISTANT DIALOG ----------------------
+@Composable
+fun AiAssistantDialog(
+    isArabic: Boolean,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(24.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(20.dp)
+                    .fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (isArabic) "🤖 المساعد الذكي اليمني" else "🤖 Local Smart Assistant",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "Close")
+                    }
+                }
+
+                Text(
+                    text = if (isArabic) "يسعدني مساعدتك! تفضل بطرح سؤالك حول الخدمات، الفنيين أو كيفية استخدام دليل اليمن." else "Happy to help! Ask about services, technicians, or how to use the Yemen directory.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Divider(color = MaterialTheme.colorScheme.outlineVariant)
+
+                Text(
+                    text = if (isArabic) "إجابات شائعة مخزنة محلياً:" else "Common Offline Answers:",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.secondary
+                )
+
+                LazyColumn(
+                    modifier = Modifier.height(180.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val faqs = listOf(
+                        "كيف يمكنني الاتصال بفني؟" to "اضغط على أي فني في القائمة لتظهر نافذة التفاصيل، ومنها انقر على 'اتصال هاتف' أو 'واتساب'.",
+                        "هل الخدمات مجانية؟" to "التطبيق مجاني تماماً للبحث والتصفح والمراسلة، وتتفاوت قيمة الكشفية حسب خيارات كل فني ويشار إليها بوضوح.",
+                        "كيف أوثق حسابي للحصول على الشارة الزرقاء؟" to "يرجى تقديم طلب الانضمام كمهني وإرفاق صورة الهوية الشخصية لتقوم الإدارة بمراجعة طلبك وتوثيقه حياً.",
+                        "رقم الدعم الفني المباشر" to "يمكنك التواصل معنا هاتفياً أو عبر واتساب على الرقم 777644670 متاح على مدار الساعة."
+                    )
+
+                    items(faqs) { (q, a) ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Text(text = "❓ $q", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(text = a, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface)
+                            }
+                        }
+                    }
+                }
+
+                Button(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(text = if (isArabic) "موافق" else "OK")
+                }
+            }
+        }
+    }
+}
+
 // ---------------------- SYNC DIAGNOSTICS STATS DIALOG ----------------------
 @Composable
 fun DiagnosticDialog(
@@ -2088,6 +2986,42 @@ fun BackdoorSettingsPanelLayout(
     var permManageBanners by remember { mutableStateOf(true) }
     var permDeleteProviders by remember { mutableStateOf(true) }
     var permViewReports by remember { mutableStateOf(true) }
+
+    // Section 10: Expanded Categories, Terms, and Custom Colors states
+    var catParentIdState by remember { mutableStateOf("") }
+    var customColorThemeId by remember { mutableStateOf("") }
+    var customColorThemeNameAr by remember { mutableStateOf("") }
+    var customColorThemeNameEn by remember { mutableStateOf("") }
+    var customColorBgHex by remember { mutableStateOf("#FF0F1016") }
+    var customColorSurfHex by remember { mutableStateOf("#FF1E2230") }
+    var customColorSurfVarHex by remember { mutableStateOf("#FF24293D") }
+    var customColorPrimHex by remember { mutableStateOf("#FFE2E8F0") }
+    var customColorSecHex by remember { mutableStateOf("#FF38BDF8") }
+    var customColorTertHex by remember { mutableStateOf("#FF818CF8") }
+    var customColorOutHex by remember { mutableStateOf("#FF475569") }
+
+    // Section 11: Commercial Showcase states
+    var commCatId by remember { mutableStateOf("") }
+    var commCatAr by remember { mutableStateOf("") }
+    var commCatEn by remember { mutableStateOf("") }
+    var commCatEmoji by remember { mutableStateOf("🛒") }
+
+    var commShopId by remember { mutableStateOf("") }
+    var commShopAr by remember { mutableStateOf("") }
+    var commShopEn by remember { mutableStateOf("") }
+    var commShopPhone by remember { mutableStateOf("") }
+    var commShopWhatsapp by remember { mutableStateOf("") }
+    var commShopAddress by remember { mutableStateOf("") }
+
+    var commItemId by remember { mutableStateOf("") }
+    var commItemCatId by remember { mutableStateOf("") }
+    var commItemShopId by remember { mutableStateOf("") }
+    var commItemAr by remember { mutableStateOf("") }
+    var commItemEn by remember { mutableStateOf("") }
+    var commItemPrice by remember { mutableStateOf("") }
+    var commItemQty by remember { mutableStateOf("") }
+    var commItemDesc by remember { mutableStateOf("") }
+    var commItemDelivery by remember { mutableStateOf("") }
 
     // Tab 10: White-label customization inputs
     var appNameEditor by remember { mutableStateOf(config.appName) }
@@ -3097,6 +4031,630 @@ fun BackdoorSettingsPanelLayout(
                                     }
                                 }) {
                                     Icon(Icons.Default.Delete, contentDescription = "Delete Mod", tint = Color.Red, modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            var selectedManageCatId by remember { mutableStateOf("") }
+            var selectedManageShopId by remember { mutableStateOf("") }
+            val customColorsList by FirebaseManager.customColors.collectAsState()
+
+            AdminSectionAccordion(
+                title = if (isArabic) "🛠️ 10. قسم الخدمات المهنية والتوثيق والتحكم بشروط التسجيل وتثبيتهم" else "10. Professional Service Categories & Registration Setup",
+                isExpanded = expandedTabId == 77,
+                onHeaderClicked = { expandedTabId = if (expandedTabId == 77) -1 else 77 }
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    // Registration Terms Part
+                    Text(text = if (isArabic) "📝 إعداد شروط تسجيل الفنيين:" else "Registration Terms Details:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    OutlinedTextField(
+                        value = registrationTermsEditor,
+                        onValueChange = { registrationTermsEditor = it },
+                        label = { Text(if (isArabic) "الشروط والقواعد التسجيلية" else "Subscription Rules") },
+                        modifier = Modifier.fillMaxWidth(),
+                        maxLines = 4
+                    )
+                    Button(
+                        onClick = {
+                            FirebaseManager.saveAppConfig(config.copy(registrationTerms = registrationTermsEditor))
+                            Toast.makeText(context, if (isArabic) "تم حفظ شروط التسجيل الجديدة" else "Terms updated successfully", Toast.LENGTH_SHORT).show()
+                            FirebaseManager.logActivity(adminName, "تعديل لائحة شروط التسجيل الوطنية")
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(text = if (isArabic) "حفظ بنود تسجيل الخدمة 📝" else "Save registration rules 📝")
+                    }
+
+                    Divider(color = MaterialTheme.colorScheme.outlineVariant)
+
+                    // Categories Setup Part
+                    Text(text = if (isArabic) "📂 إضافة قسم مهني أو خدمي رئيسي/فرعي:" else "Add New Service Category:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    OutlinedTextField(
+                        value = categoryArNameState,
+                        onValueChange = { categoryArNameState = it },
+                        label = { Text(if (isArabic) "الاسم بالعربية (مثال: نجار، كهربائي)" else "Category Arabic Name") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = categoryEnNameState,
+                        onValueChange = { categoryEnNameState = it },
+                        label = { Text(if (isArabic) "الاسم بالإنجليزية (Carpentry, etc)" else "Category English name") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = categoryEmojiState,
+                        onValueChange = { categoryEmojiState = it },
+                        label = { Text(if (isArabic) "الرمز أو الأيقونة ايموجي" else "Emoji Icon symbol") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Text(text = if (isArabic) "تبعية القسم (قـسـم فرعي):" else "Category Hierarchy Setup:")
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        item {
+                            val isSel = catParentIdState.isEmpty()
+                            Box(
+                                modifier = Modifier
+                                    .background(color = if (isSel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(10.dp))
+                                    .clickable { catParentIdState = "" }
+                                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                            ) {
+                                Text(text = if (isArabic) "🚨 قسم أساسي" else "Primary Root Category", fontSize = 11.sp, color = if (isSel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        items(categoriesList.filter { it.parentId.isEmpty() }) { parentCat ->
+                            val isSel = catParentIdState == parentCat.id
+                            Box(
+                                modifier = Modifier
+                                    .background(color = if (isSel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(10.dp))
+                                    .clickable { catParentIdState = parentCat.id }
+                                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                            ) {
+                                Text(text = "${parentCat.iconEmoji} ${if (isArabic) parentCat.nameAr else parentCat.nameEn}", fontSize = 11.sp, color = if (isSel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+
+                    Button(
+                        onClick = {
+                            if (categoryArNameState.isEmpty() || categoryEnNameState.isEmpty()) {
+                                Toast.makeText(context, "الرجاء ملء اسم القسم الخدمي", Toast.LENGTH_SHORT).show()
+                                return@Button
+                            }
+                            val newId = "cat_" + UUID.randomUUID().toString().take(6)
+                            FirebaseManager.manageCategory(
+                                id = newId,
+                                nameAr = categoryArNameState,
+                                nameEn = categoryEnNameState,
+                                iconEmoji = categoryEmojiState,
+                                parentId = catParentIdState
+                            ) {
+                                Toast.makeText(context, "تم إدراج القسم الخدمي الجديد بنجاح", Toast.LENGTH_SHORT).show()
+                                FirebaseManager.logActivity(adminName, "إدراج وتلقين قسم خدمي جديد: $categoryArNameState")
+                                categoryArNameState = ""
+                                categoryEnNameState = ""
+                                categoryEmojiState = ""
+                                catParentIdState = ""
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(text = if (isArabic) "إدراج وحماية القسم المهني الجديد ➕" else "Add Service Category ➕")
+                    }
+
+                    // Categories List
+                    Text(text = if (isArabic) "📋 دليل المهن والتصنيفات الحالية:" else "Service Categories Ledger:")
+                    categoriesList.forEach { cat ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(text = "${cat.iconEmoji} ${if (isArabic) cat.nameAr else cat.nameEn}", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    val hierarchyText = if (cat.parentId.isEmpty()) {
+                                        if (isArabic) "قسم رئيسي" else "Primary Root Category"
+                                    } else {
+                                        val parentName = categoriesList.firstOrNull { it.id == cat.parentId }?.nameAr ?: cat.parentId
+                                        "${if (isArabic) "قسم فرعي من" else "Subcategory of"}: $parentName"
+                                    }
+                                    Text(text = hierarchyText, fontSize = 9.sp, color = MaterialTheme.colorScheme.secondary)
+                                }
+                                IconButton(onClick = {
+                                    FirebaseManager.manageCategory(cat.id, "", "", "", "", isDelete = true) {
+                                        Toast.makeText(context, "تم حذف القسم الخدمي", Toast.LENGTH_SHORT).show()
+                                        FirebaseManager.logActivity(adminName, "حزف القسم الخدمي بالرمز ${cat.id}")
+                                    }
+                                }) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Delete parent", tint = Color.Red, modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        }
+                    }
+
+                    Divider(color = MaterialTheme.colorScheme.outlineVariant)
+
+                    // Promote Technicians (Verify / Pin / Elite)
+                    Text(text = if (isArabic) "⭐ التحكم الفوري بتثبيت وتوثيق المهنيين:" else "Promote & Verification Command Center:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text(text = if (isArabic) "اختر المهني من القائمة للاعتماد والتثبيت:" else "Select technician to promote:")
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(activeProvidersList) { p ->
+                            val isSel = selectedTechForPromotionId == p.id
+                            Box(
+                                modifier = Modifier
+                                    .background(color = if (isSel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(10.dp))
+                                    .clickable {
+                                        selectedTechForPromotionId = p.id
+                                        promoteIsVerified = p.isVerified
+                                        promoteIsPinned = p.isPinned
+                                        promoteIsRecom = p.isRecommended
+                                        promoteIsVIP = p.hasPremiumSubscription
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Text(text = p.fullName, fontSize = 10.sp, color = if (isSel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+
+                    if (selectedTechForPromotionId.isNotEmpty()) {
+                        val techNameMatch = activeProvidersList.firstOrNull { it.id == selectedTechForPromotionId }?.fullName ?: ""
+                        Text(text = "المهني المحدد: $techNameMatch", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                        
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(checked = promoteIsVerified, onCheckedChange = { promoteIsVerified = it })
+                            Text(text = if (isArabic) "توثيق الحساب ✔️ (أمان وحساب حقيقي)" else "Approve authentication seal ✔️", fontSize = 11.sp)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(checked = promoteIsPinned, onCheckedChange = { promoteIsPinned = it })
+                            Text(text = if (isArabic) "تثبيت في الصدارة أعلى القائمة 📌" else "Anchor premium pin to header list 📌", fontSize = 11.sp)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(checked = promoteIsRecom, onCheckedChange = { promoteIsRecom = it })
+                            Text(text = if (isArabic) "ختم منصة يمنية موصى بها 👍" else "Recommend to local visitors 👍", fontSize = 11.sp)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(checked = promoteIsVIP, onCheckedChange = { promoteIsVIP = it })
+                            Text(text = if (isArabic) "ترقية للدرجة الفاخرة VIP 👑" else "Enable elite VIP tier membership 👑", fontSize = 11.sp)
+                        }
+
+                        Button(
+                            onClick = {
+                                FirebaseManager.updateProviderStatus(
+                                    id = selectedTechForPromotionId,
+                                    isVerified = promoteIsVerified,
+                                    isPinned = promoteIsPinned,
+                                    isRecom = promoteIsRecom,
+                                    isPremium = promoteIsVIP
+                                ) {
+                                    Toast.makeText(context, "تم توطين الرتب وحفظ الشارات", Toast.LENGTH_SHORT).show()
+                                    FirebaseManager.logActivity(adminName, "توطين وتثبيت شارات وبطاقة فنية للمهني: $techNameMatch")
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(text = if (isArabic) "تأصيل الشارات والترقيات" else "Perform configuration updates")
+                        }
+                    }
+
+                    Divider(color = MaterialTheme.colorScheme.outlineVariant)
+
+                    // dynamic custom color setup
+                    Text(text = if (isArabic) "🎨 إضافة وإدارة الملامح والألوان المخصصة:" else "Dynamic Hex Theming Engine Control:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    OutlinedTextField(
+                        value = customColorThemeNameAr,
+                        onValueChange = { customColorThemeNameAr = it },
+                        label = { Text(if (isArabic) "اسم المظهر (مثال: زمردي ملكي)" else "Color Palette Name Arabic") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = customColorThemeNameEn,
+                        onValueChange = { customColorThemeNameEn = it },
+                        label = { Text(if (isArabic) "اسم المظهر بالإنجليزية" else "Color Theme Name English") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = customColorBgHex,
+                        onValueChange = { customColorBgHex = it },
+                        label = { Text(if (isArabic) "خلفية الشاشة الأساسية (مثال: #FF0F1016)" else "Main Screen Background Hex Value") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = customColorSurfHex,
+                        onValueChange = { customColorSurfHex = it },
+                        label = { Text(if (isArabic) "لون البطاقات والأسطح (مثال: #FF1E2230)" else "Card Surface Base Hex Color") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = customColorPrimHex,
+                        onValueChange = { customColorPrimHex = it },
+                        label = { Text(if (isArabic) "اللون الرئيسي البارز (مثال: #FFD4AF37)" else "Highlight Color Accent Primary Hex") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = customColorSecHex,
+                        onValueChange = { customColorSecHex = it },
+                        label = { Text(if (isArabic) "اللون الثانوي للنصوص والأيقونات (مثال: #FF38BDF8)" else "Supporting Secondary Hex Color") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Button(
+                        onClick = {
+                            if (customColorThemeNameAr.isEmpty() || customColorBgHex.isEmpty() || customColorSurfHex.isEmpty() || customColorPrimHex.isEmpty()) {
+                                Toast.makeText(context, "الرجاء إدخال اسم المظهر والألوان الأربعة لضمان سلامة العرض", Toast.LENGTH_SHORT).show()
+                                return@Button
+                            }
+                            val colId = "theme_" + UUID.randomUUID().toString().take(6)
+                            val tObj = CustomColorTheme(
+                                id = colId,
+                                nameAr = customColorThemeNameAr,
+                                nameEn = customColorThemeNameEn,
+                                backgroundHex = customColorBgHex,
+                                surfaceHex = customColorSurfHex,
+                                surfaceVariantHex = customColorSurfHex,
+                                primaryHex = customColorPrimHex,
+                                secondaryHex = customColorSecHex,
+                                tertiaryHex = customColorSecHex,
+                                outlineHex = "#FF475569"
+                            )
+                            FirebaseManager.manageCustomColor(tObj) {
+                                Toast.makeText(context, "تم حفظ المظهر الإبداعي في المعرض السحابي", Toast.LENGTH_SHORT).show()
+                                FirebaseManager.logActivity(adminName, "تصميم وحقن مظهر لوني مخصص: $customColorThemeNameAr")
+                                customColorThemeNameAr = ""
+                                customColorThemeNameEn = ""
+                                customColorBgHex = "#FF0F1016"
+                                customColorSurfHex = "#FF1E2230"
+                                customColorPrimHex = "#FFE2E8F0"
+                                customColorSecHex = "#FF38BDF8"
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(text = if (isArabic) "حقين المظهر واللون المبتكر 🎨" else "Add Custom Theme 🎨")
+                    }
+
+                    Text(text = if (isArabic) "🎨 لوحة تفعيل وحذف الألوان المخصصة:" else "Custom Designed Palettes Ledger:")
+                    customColorsList.forEach { cCol ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(text = "🎨 ${if (isArabic) cCol.nameAr else cCol.nameEn}", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Box(modifier = Modifier.size(24.dp).background(Color(android.graphics.Color.parseColor(cCol.backgroundHex)), RoundedCornerShape(4.dp)))
+                                    Box(modifier = Modifier.size(24.dp).background(Color(android.graphics.Color.parseColor(cCol.surfaceHex)), RoundedCornerShape(4.dp)))
+                                    Box(modifier = Modifier.size(24.dp).background(Color(android.graphics.Color.parseColor(cCol.primaryHex)), RoundedCornerShape(4.dp)))
+                                    Box(modifier = Modifier.size(24.dp).background(Color(android.graphics.Color.parseColor(cCol.secondaryHex)), RoundedCornerShape(4.dp)))
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                    val isCurrentActive = config.themeType == AppThemeType.CUSTOM_COLOR && config.activeCustomColorId == cCol.id
+                                    Button(
+                                        onClick = {
+                                            FirebaseManager.saveAppConfig(config.copy(themeType = AppThemeType.CUSTOM_COLOR, activeCustomColorId = cCol.id))
+                                            Toast.makeText(context, "تم تفعيل المظهر المختار في كامل أرجاء التطبيق!", Toast.LENGTH_SHORT).show()
+                                            FirebaseManager.logActivity(adminName, "تفعيل طاقم ألوان مخصص: ${cCol.nameAr}")
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = if (isCurrentActive) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary),
+                                        modifier = Modifier.weight(1f),
+                                        shape = RoundedCornerShape(6.dp)
+                                    ) {
+                                        Text(text = if (isCurrentActive) "🟢 نشط حالياً" else "تطبيق ديناميكي", fontSize = 10.sp)
+                                    }
+                                    Button(
+                                        onClick = {
+                                            FirebaseManager.manageCustomColor(cCol, isDelete = true) {
+                                                Toast.makeText(context, "تم إزالة المطبوع", Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color.Gray),
+                                        modifier = Modifier.weight(0.8f),
+                                        shape = RoundedCornerShape(6.dp)
+                                    ) {
+                                        Text(text = "حذف 🗑️", fontSize = 10.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            val commercialCategoriesList by FirebaseManager.commercialCategories.collectAsState()
+            val commercialShopsList by FirebaseManager.commercialShops.collectAsState()
+            val commercialItemsList by FirebaseManager.commercialItems.collectAsState()
+
+            AdminSectionAccordion(
+                title = if (isArabic) "🛒 11. قسم التحكم بالأقسام التجارية والمحلات والسلع المعروضة وكمياتها وطرق التوصيل" else "11. Commercial Shops, Goods Catalog & Delivery Setup",
+                isExpanded = expandedTabId == 88,
+                onHeaderClicked = { expandedTabId = if (expandedTabId == 88) -1 else 88 }
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    // Part A: Commercial Categories
+                    Text(text = if (isArabic) "🔌 1. تهيئة أقسام البيع التجارية (كهرباء، سباكة، تلفونات...):" else "1. Setup Commercial Catalog Core Categories:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    OutlinedTextField(
+                        value = commCatAr,
+                        onValueChange = { commCatAr = it },
+                        label = { Text(if (isArabic) "مثل: أدوات وتلفونات ومستلزمات" else "Commercial Category Name Ar") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = commCatEn,
+                        onValueChange = { commCatEn = it },
+                        label = { Text(if (isArabic) "Commercial category Name En" else "Commercial category name En") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = commCatEmoji,
+                        onValueChange = { commCatEmoji = it },
+                        label = { Text(if (isArabic) "الرمز المعبر (مثال: 🔌, 📱, 🛠️)" else "Representative Emoji symbol") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Button(
+                        onClick = {
+                            if (commCatAr.isEmpty()) {
+                                Toast.makeText(context, "يرجى كتابة اسم القسم التجاري", Toast.LENGTH_SHORT).show()
+                                return@Button
+                            }
+                            val randomId = "comm_" + UUID.randomUUID().toString().take(6)
+                            FirebaseManager.manageCommercialCategory(
+                                CommercialCategory(randomId, commCatAr, commCatEn, commCatEmoji, "")
+                            ) {
+                                Toast.makeText(context, "تم حفظ القسم التجاري بنجاح", Toast.LENGTH_SHORT).show()
+                                FirebaseManager.logActivity(adminName, "إضافة قسم تجاري: $commCatAr")
+                                commCatAr = ""
+                                commCatEn = ""
+                                commCatEmoji = "🛒"
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(text = if (isArabic) "إدراج تصنيف تجاري جديد ➕" else "Register Commercial Category ➕")
+                    }
+
+                    // Commercial categories listing
+                    commercialCategoriesList.forEach { cc ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(text = "${cc.iconEmoji} ${if (isArabic) cc.nameAr else cc.nameEn}", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                IconButton(onClick = {
+                                    FirebaseManager.manageCommercialCategory(cc, isDelete = true) {
+                                        Toast.makeText(context, "تم حذف القسم بنجاح", Toast.LENGTH_SHORT).show()
+                                    }
+                                }) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Delete CC", tint = Color.Red, modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        }
+                    }
+
+                    Divider(color = MaterialTheme.colorScheme.outlineVariant)
+
+                    // Part B: Merchant Joint Shops
+                    Text(text = if (isArabic) "🏢 2. إدارة المحلات التجارية المشتركة والشركاء:" else "2. Create Joint Merchant Partner Shops:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    OutlinedTextField(
+                        value = commShopAr,
+                        onValueChange = { commShopAr = it },
+                        label = { Text(if (isArabic) "اسم المحل بالعربية" else "Partner Shop Name Arabic") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = commShopEn,
+                        onValueChange = { commShopEn = it },
+                        label = { Text(if (isArabic) "اسم المحل بالإنجليزية" else "Partner Shop Name English") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = commShopPhone,
+                        onValueChange = { commShopPhone = it },
+                        label = { Text(if (isArabic) "رقم الاتصال المباشر" else "Direct Hot Call number") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = commShopWhatsapp,
+                        onValueChange = { commShopWhatsapp = it },
+                        label = { Text(if (isArabic) "رقم الواتساب للطلبات" else "Customer Orders WhatsApp") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = commShopAddress,
+                        onValueChange = { commShopAddress = it },
+                        label = { Text(if (isArabic) "عنوان المحل التفصيلي (المدينة والشارع)" else "Shop geography location address") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Button(
+                        onClick = {
+                            if (commShopAr.isEmpty() || commShopPhone.isEmpty()) {
+                                Toast.makeText(context, "يرجى إدخال اسم المحل وهواتف الاتصال", Toast.LENGTH_SHORT).show()
+                                return@Button
+                            }
+                            val randomId = "shop_" + UUID.randomUUID().toString().take(6)
+                            FirebaseManager.manageCommercialShop(
+                                CommercialShop(randomId, commShopAr, commShopEn, commShopPhone, commShopWhatsapp, commShopAddress, "")
+                            ) {
+                                Toast.makeText(context, "تم إرسال ونشر المحل التجاري الشريك", Toast.LENGTH_SHORT).show()
+                                FirebaseManager.logActivity(adminName, "إدراج محل تجاري شريك: $commShopAr")
+                                commShopAr = ""
+                                commShopEn = ""
+                                commShopPhone = ""
+                                commShopWhatsapp = ""
+                                commShopAddress = ""
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(text = if (isArabic) "تسجيل المحل الشريك الجديد 🏢" else "Save Joint Partner Shop 🏢")
+                    }
+
+                    // Partner shops listing
+                    commercialShopsList.forEach { sh ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(text = "🏢 ${if (isArabic) sh.nameAr else sh.nameEn}", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    Text(text = "📞 ${sh.phone} | Address: ${sh.address}", fontSize = 9.sp)
+                                }
+                                IconButton(onClick = {
+                                    FirebaseManager.manageCommercialShop(sh, isDelete = true) {
+                                        Toast.makeText(context, "تم الحذف", Toast.LENGTH_SHORT).show()
+                                    }
+                                }) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Delete Shop", tint = Color.Red, modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        }
+                    }
+
+                    Divider(color = MaterialTheme.colorScheme.outlineVariant)
+
+                    // Part C: Goods & Stock
+                    Text(text = if (isArabic) "📦 3. إدارج وتفويض سلع ومواد جديدة مخزونة وجاهزة للبيع:" else "3. Catalog & Manage Commercial Commodities Stock:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    
+                    Text(text = if (isArabic) "اختر القسم التجاري:" else "Choose Commercial category:", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(commercialCategoriesList) { cc ->
+                            val isSel = commItemCatId == cc.id
+                            Box(
+                                modifier = Modifier
+                                    .background(color = if (isSel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(8.dp))
+                                    .clickable { commItemCatId = cc.id }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text(text = "${cc.iconEmoji} ${if (isArabic) cc.nameAr else cc.nameEn}", fontSize = 10.sp, color = if (isSel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+
+                    Text(text = if (isArabic) "اختر المتجر/المحل المالك للسلعة:" else "Select Merchant Shop owner:", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(commercialShopsList) { sh ->
+                            val isSel = commItemShopId == sh.id
+                            Box(
+                                modifier = Modifier
+                                    .background(color = if (isSel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(8.dp))
+                                    .clickable { commItemShopId = sh.id }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text(text = if (isArabic) sh.nameAr else sh.nameEn, fontSize = 10.sp, color = if (isSel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = commItemAr,
+                        onValueChange = { commItemAr = it },
+                        label = { Text(if (isArabic) "اسم السلعة (مثال: مفتاح تمديد ممتد)" else "Product Name Arabic") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = commItemEn,
+                        onValueChange = { commItemEn = it },
+                        label = { Text(if (isArabic) "اسم السلعة بالإنجليزية" else "Product Name English") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = commItemPrice,
+                        onValueChange = { commItemPrice = it },
+                        label = { Text(if (isArabic) "السعر بالريال اليمني" else "Price in YER") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = commItemQty,
+                        onValueChange = { commItemQty = it },
+                        label = { Text(if (isArabic) "الكمية المتوفرة بالمخزن" else "Available Store Quantity") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = commItemDesc,
+                        onValueChange = { commItemDesc = it },
+                        label = { Text(if (isArabic) "وصف السلعة ومميزاتها والضمان" else "Spec details, description and warranties") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = commItemDelivery,
+                        onValueChange = { commItemDelivery = it },
+                        label = { Text(if (isArabic) "طرق التوصيل (البريد، توصيل فوري...)" else "Delivery methods & shipping details") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Button(
+                        onClick = {
+                            val priceD = commItemPrice.toDoubleOrNull() ?: 0.0
+                            val qtyI = commItemQty.toIntOrNull() ?: 1
+                            if (commItemAr.isEmpty() || commItemCatId.isEmpty() || commItemShopId.isEmpty() || priceD <= 0.0) {
+                                Toast.makeText(context, "الرجاء تحديد القسم، المحل، اسم السلعة والسعر لخطوات آمنة", Toast.LENGTH_SHORT).show()
+                                return@Button
+                            }
+                            val randomId = "item_" + UUID.randomUUID().toString().take(6)
+                            val item = CommercialItem(randomId, commItemCatId, commItemShopId, commItemAr, commItemEn, priceD, qtyI, "", commItemDesc, commItemDelivery)
+                            FirebaseManager.manageCommercialItem(item) {
+                                Toast.makeText(context, "تم إطلاق المعروض التجاري بنجاح تواصل فوري", Toast.LENGTH_SHORT).show()
+                                FirebaseManager.logActivity(adminName, "عرض سلعة تجارية للبيع: $commItemAr بسعر $priceD ر.ي")
+                                commItemAr = ""
+                                commItemEn = ""
+                                commItemPrice = ""
+                                commItemQty = ""
+                                commItemDesc = ""
+                                commItemDelivery = ""
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(text = if (isArabic) "طرح وعرض السلعة للبيع الفوري ➕" else "Add Commodity to market ➕")
+                    }
+
+                    // Stock Commodities Listing
+                    Text(text = if (isArabic) "📋 قائمة السلع المعروضة حالياً المتوفرة:" else "Active Products Inventory List:")
+                    commercialItemsList.forEach { i ->
+                        val catLabel = commercialCategoriesList.firstOrNull { it.id == i.categoryId }?.nameAr ?: ""
+                        val shopLabel = commercialShopsList.firstOrNull { it.id == i.shopId }?.nameAr ?: ""
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(text = "📦 ${if (isArabic) i.nameAr else i.nameEn}", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    Text(text = "السعر: ${i.price} ر.ي | الكمية المتوفرة: ${i.quantity} قطعة", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
+                                    Text(text = "القسم والتصنيف: $catLabel | المتجر: $shopLabel", fontSize = 9.sp, color = Color.Gray)
+                                }
+                                IconButton(onClick = {
+                                    FirebaseManager.manageCommercialItem(i, isDelete = true) {
+                                        Toast.makeText(context, "تم حجب السلعة من المتجر", Toast.LENGTH_SHORT).show()
+                                    }
+                                }) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Delete Item", tint = Color.Red, modifier = Modifier.size(16.dp))
                                 }
                             }
                         }
